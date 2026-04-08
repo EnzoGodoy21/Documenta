@@ -1,0 +1,44 @@
+# ── Saída gerada pelo script ──────────────────────────────────
+output/
+logs/
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# ── Ambientes virtuais ────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Dados e prints (gerados externamente, não versionados) ────
+prints/
+dados.csv
+fixos.csv
+
+# ── Arquivos de lista de tabelas (gerados pelo usuário) ───────
+tabelas.txt
+tabelas.csv
+
+# ── Sistema operacional ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ── Word temporários ──────────────────────────────────────────
+~$*.docx
