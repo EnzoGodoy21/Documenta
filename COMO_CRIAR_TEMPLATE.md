@@ -2,79 +2,104 @@
 
 O template é um arquivo `.docx` criado normalmente no Word.
 Onde quiser inserir valores dinâmicos, escreva os placeholders abaixo.
-O script substitui tudo automaticamente — nenhum arquivo de configuração é necessário.
+Nenhum arquivo de configuração extra é necessário.
 
 ---
 
-## Placeholders disponíveis
+## Tipos de placeholder
 
-### Texto automático (sem configuração)
-
-| Placeholder | O que insere |
-|---|---|
-| `[TXT:NOME_TABELA]` | Nome da tabela (ex.: `VENDAS`) |
-| `[TXT:DATA]` | Data de geração: `04/04/2026` |
-| `[TXT:DATA_HORA]` | Data e hora: `04/04/2026 14:30` |
-| `[TXT:ANO]` | Apenas o ano: `2026` |
-| `[TXT:MES]` | Apenas o mês: `04` |
-| `[TXT:DIA]` | Apenas o dia: `04` |
-
-### Texto de dados externos (via `dados.csv`)
-
-Qualquer coluna do arquivo de dados pode virar um placeholder.
-
-| Placeholder | O que insere |
-|---|---|
-| `[TXT:RESPONSAVEL]` | Coluna `RESPONSAVEL` do `dados.csv` |
-| `[TXT:DOMINIO]` | Coluna `DOMINIO` do `dados.csv` |
-| `[TXT:DESCRICAO]` | Coluna `DESCRICAO` do `dados.csv` |
-| `[TXT:...]` | Qualquer outra coluna |
-
-### Imagens
-
-| Placeholder | O que insere |
-|---|---|
-| `[IMG:visao_geral]` | `prints/visao_geral_TABELA.png` |
-| `[IMG:distribuicao]` | `prints/distribuicao_TABELA.png` |
-| `[IMG:chave]` | `prints/chave_TABELA.png` (ou `.jpg`) |
+| Tipo | Formato | Comportamento |
+|---|---|---|
+| Texto | `[TXT:chave]` | Substituído por texto (automático ou via CSV) |
+| Imagem | `[IMG:chave]` | Substituído por imagem da pasta `prints/` |
+| Legenda | `[LEG:chave]` | Reservado — estilo próprio, a implementar |
 
 ---
 
-## Convenção de nome dos prints
+## [TXT:*] automáticos — sem configuração
 
+```
+[TXT:NOME_TABELA]   nome da tabela                      ex.: VENDAS
+[TXT:DATA]          data de geração                     ex.: 04/04/2026
+[TXT:DATA_HORA]     data e hora de geração              ex.: 04/04/2026 14:30
+[TXT:ANO]           ano                                 ex.: 2026
+[TXT:MES]           mês                                 ex.: 04
+[TXT:DIA]           dia                                 ex.: 04
+```
+
+---
+
+## [TXT:*] via CSV — dados por tabela
+
+Adicione colunas extras no arquivo de tabelas (.csv) e use qualquer coluna
+como placeholder no template. O CSV serve ao mesmo tempo como filtro de
+execução e como fonte de dados de texto.
+
+**Exemplo de CSV:**
+```
+nome_tabela ; RESPONSAVEL  ; DOMINIO   ; DESCRICAO
+VENDAS      ; João Silva   ; Comercial ; Tabela de vendas do ERP
+CLIENTES    ; Maria Santos ; CRM       ; Cadastro de clientes
+```
+
+**Uso no template:**
+```
+[TXT:RESPONSAVEL]   [TXT:DOMINIO]   [TXT:DESCRICAO]
+```
+
+Cada tabela recebe os valores da sua própria linha no CSV.
+
+---
+
+## [IMG:*] — imagens
+
+```
+[IMG:chave]   insere prints/chave_TABELA.png (ou .jpg / .jpeg)
+```
+
+**Convenção de nome dos prints:**
 ```
 chave_NOMETABELA.png
-```
 
 Exemplos:
-```
-visao_geral_VENDAS.png
-distribuicao_CLIENTES.png
-linhagem_PEDIDOS.png
+  visao_geral_VENDAS.png
+  distribuicao_CLIENTES.png
+  linhagem_PEDIDOS.png
 ```
 
-As tabelas disponíveis são descobertas automaticamente cruzando os
-arquivos em `prints/` com as chaves `[IMG:*]` do template.
+As tabelas disponíveis são descobertas automaticamente cruzando os arquivos
+em `prints/` com as chaves `[IMG:*]` do template. Nenhuma lista manual é necessária.
+
+---
+
+## [LEG:*] — legenda de print (standby)
+
+Tipo reservado para uso futuro. Aparecerá abaixo de prints com estilo
+diferenciado (fonte menor, formatação específica). Não implementado ainda.
+
+```
+[LEG:visao_geral]   legenda vinculada ao [IMG:visao_geral]
+```
 
 ---
 
 ## Exemplo de template
 
 ```
-Tabela: [TXT:NOME_TABELA]              Documento gerado em: [TXT:DATA]
+Tabela: [TXT:NOME_TABELA]              Gerado em: [TXT:DATA]
 Responsável: [TXT:RESPONSAVEL]         Domínio: [TXT:DOMINIO]
 Descrição: [TXT:DESCRICAO]
 
 
-Visão Geral
+1. Visão Geral
 [IMG:visao_geral]
 
 
-Distribuição de Dados
+2. Distribuição de Dados
 [IMG:distribuicao]
 
 
-Linhagem
+3. Linhagem
 [IMG:linhagem]
 ```
 
@@ -85,24 +110,22 @@ Linhagem
 ```
 projeto/
 ├── template/
-│   └── meu_template.docx     ← template com os placeholders
+│   └── meu_template.docx
 ├── prints/
 │   ├── visao_geral_VENDAS.png
 │   ├── visao_geral_CLIENTES.png
 │   ├── distribuicao_VENDAS.png
 │   └── ...
-├── output/                   ← .docx gerados (criado automaticamente)
-├── logs/                     ← relatórios de execução (criado automaticamente)
-├── gera_word.py
-├── interface.py
-└── run.bat
+├── tabelas.csv          ← opcional: filtro + dados [TXT:*]
+├── output/              ← criado automaticamente
+└── logs/                ← criado automaticamente
 ```
 
 ---
 
 ## Dicas
 
-- Placeholders funcionam dentro de **títulos, parágrafos e células de tabela** do Word
-- Se um placeholder não for substituído (print ausente, coluna faltando no CSV), ele **fica visível** no `.docx` gerado e o status fica como `PARCIAL` — fácil de identificar no painel de resultados
-- O script é **idempotente**: numa segunda execução sem `--force`, tabelas que já têm `.docx` em `output/` são ignoradas
-- Textos externos via `dados.csv` ainda não estão implementados — em desenvolvimento
+- Placeholders funcionam em parágrafos, títulos e células de tabela do Word
+- Se um placeholder não for substituído, ele fica visível no `.docx` e o status fica `PARCIAL`
+- O script é idempotente: numa segunda execução sem `--force`, tabelas já geradas são ignoradas
+- O timestamp é o mesmo para todos os documentos do mesmo lote

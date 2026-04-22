@@ -152,18 +152,28 @@ def descobrir_tabelas(prints_path: str, chaves_img: list) -> list:
     return sorted(tabelas)
 
 
-def ler_tabelas_de_arquivo(path: str) -> list:
+def ler_tabelas_de_arquivo(path: str) -> tuple:
     """
     Lê nomes de tabelas de um arquivo .txt ou .csv.
 
     .txt — uma tabela por linha; linhas em branco e comentários (#) ignorados.
+           Retorna dados vazio (sem colunas extras).
     .csv — lê a coluna 'nome_tabela' se existir; caso contrário usa a primeira coluna.
+           Colunas extras (além de nome_tabela) são retornadas como dados por tabela,
+           servindo como valores [TXT:*] no template.
            Suporta delimitadores vírgula (,) e ponto-e-vírgula (;).
+
+    Retorna:
+      (tabelas, dados)
+        tabelas — list[str]: nomes das tabelas na ordem do arquivo
+        dados   — dict[str, dict]: valores extras por tabela
+                  ex.: {"VENDAS": {"RESPONSAVEL": "João", "DOMINIO": "Comercial"}}
     """
     import csv as _csv
 
     ext = Path(path).suffix.lower()
     tabelas = []
+    dados = {}
 
     with open(path, encoding="utf-8-sig") as f:
         if ext == ".csv":
@@ -174,22 +184,36 @@ def ler_tabelas_de_arquivo(path: str) -> list:
             except _csv.Error:
                 dialeto = _csv.excel
             reader = _csv.DictReader(f, dialect=dialeto)
-            col = next((c for c in (reader.fieldnames or [])
-                        if c.strip().lower() == "nome_tabela"), None)
-            if col is None and reader.fieldnames:
-                col = reader.fieldnames[0]
+
+            # Normaliza nomes de colunas (strip + uppercase)
+            fieldnames_raw = reader.fieldnames or []
+            fieldnames_norm = [c.strip().upper() for c in fieldnames_raw]
+            col_map = dict(zip(fieldnames_norm, fieldnames_raw))  # NORM → raw
+
+            col_norm = next((c for c in fieldnames_norm if c == "NOME_TABELA"), None)
+            if col_norm is None and fieldnames_norm:
+                col_norm = fieldnames_norm[0]
+            col_raw = col_map.get(col_norm) if col_norm else None
+
+            colunas_extras = [c for c in fieldnames_norm if c != col_norm]
+
             for row in reader:
-                if col:
-                    val = row.get(col, "").strip()
+                if col_raw:
+                    val = row.get(col_raw, "").strip()
                     if val:
                         tabelas.append(val)
+                        if colunas_extras:
+                            dados[val] = {
+                                c: row.get(col_map[c], "").strip()
+                                for c in colunas_extras
+                            }
         else:
             for linha in f:
                 val = linha.strip()
                 if val and not val.startswith("#"):
                     tabelas.append(val)
 
-    return tabelas
+    return tabelas, dados
 
 
 def resolver_template(template_arg: str) -> str:
@@ -381,30 +405,32 @@ def gerar_relatorio(resultados, logs_path) -> str:
 
 EPILOG = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- COMO CRIAR O TEMPLATE
+ PLACEHOLDERS DISPONÍVEIS NO TEMPLATE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-O template é um arquivo .docx normal criado no Word.
-Onde quiser inserir valores dinâmicos, use os placeholders:
+  [TXT:*] — texto
+  ──────────────────────────────────────────────────────────
+  Automáticos (sem configuração):
+    [TXT:NOME_TABELA]   nome da tabela              ex.: VENDAS
+    [TXT:DATA]          data de geração             ex.: 04/04/2026
+    [TXT:DATA_HORA]     data e hora de geração      ex.: 04/04/2026 14:30
+    [TXT:ANO]           ano                         ex.: 2026
+    [TXT:MES]           mês                         ex.: 04
+    [TXT:DIA]           dia                         ex.: 04
 
-  [TXT:NOME_TABELA]   → nome da tabela (automático)
-  [TXT:DATA]          → data de geração: 04/04/2026
-  [TXT:DATA_HORA]     → data e hora:     04/04/2026 14:30
-  [TXT:ANO]           → apenas o ano:    2026
-  [TXT:MES]           → apenas o mês:    04
-  [TXT:DIA]           → apenas o dia:    04
-  [TXT:coluna]        → qualquer coluna do dados.csv (ex.: [TXT:RESPONSAVEL])
-  [IMG:chave]         → imagem da pasta prints/ com nome chave_TABELA.png
+  Via CSV (colunas extras do arquivo de tabelas):
+    [TXT:RESPONSAVEL]   coluna RESPONSAVEL do CSV
+    [TXT:DOMINIO]       coluna DOMINIO do CSV
+    [TXT:DESCRICAO]     coluna DESCRICAO do CSV
+    [TXT:coluna]        qualquer outra coluna
 
-Exemplo de template:
-  Tabela: [TXT:NOME_TABELA]          Documento gerado em: [TXT:DATA]
-  Responsável: [TXT:RESPONSAVEL]     Domínio: [TXT:DOMINIO]
+  [IMG:*] — imagem
+  ──────────────────────────────────────────────────────────
+    [IMG:chave]         prints/chave_TABELA.png (ou .jpg)
 
-  Visão Geral
-  [IMG:visao_geral]
-
-  Distribuição de Dados
-  [IMG:distribuicao]
+  [LEG:*] — legenda de print (reservado, em desenvolvimento)
+  ──────────────────────────────────────────────────────────
+    [LEG:chave]         texto abaixo de [IMG:chave], estilo próprio
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  CONVENÇÃO DE NOMES DOS PRINTS
@@ -416,25 +442,37 @@ Exemplo de template:
     visao_geral_VENDAS.png
     distribuicao_CLIENTES.png
 
-As tabelas disponíveis são descobertas automaticamente
-cruzando os arquivos em prints/ com as chaves do template.
-Não é necessário nenhum arquivo de configuração.
+  As tabelas são descobertas automaticamente cruzando os
+  arquivos em prints/ com as chaves [IMG:*] do template.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CSV DE TABELAS — FILTRO + DADOS [TXT:*]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  O CSV serve ao mesmo tempo como filtro de execução e como
+  fonte de dados [TXT:*] para cada tabela. Colunas extras
+  além de nome_tabela viram automaticamente placeholders.
+
+  Exemplo (tabelas.csv):
+    nome_tabela ; RESPONSAVEL  ; DOMINIO
+    VENDAS      ; João Silva   ; Comercial
+    CLIENTES    ; Maria Santos ; CRM
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  EXEMPLOS DE USO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  # Execução padrão (processa só tabelas sem .docx em output/)
+  # Execução padrão (só tabelas sem .docx em output/)
   python gera_word.py
 
   # Reprocessar tudo do zero
   python gera_word.py --force
 
+  # Filtrar por arquivo (também alimenta [TXT:*] se tiver colunas extras)
+  python gera_word.py --tabelas-arquivo tabelas.csv
+
   # Tabelas específicas por nome
   python gera_word.py --tabelas VENDAS CLIENTES PEDIDOS
-
-  # Tabelas por arquivo (um nome por linha)
-  python gera_word.py --tabelas-arquivo minhas_tabelas.txt
 
   # Template e pastas customizados
   python gera_word.py --template docs/meu_template.docx --prints capturas/ --output gerados/
@@ -446,9 +484,9 @@ Não é necessário nenhum arquivo de configuração.
  STATUS DOS DOCUMENTOS GERADOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  ok       Documento gerado com todos os placeholders substituídos
-  parcial  Documento gerado, mas algum print ou texto estava ausente
-           (o placeholder original fica visível no .docx para identificação)
+  ok       Todos os placeholders substituídos
+  parcial  Gerado, mas algum print ou texto estava ausente
+           (placeholder visível no .docx para identificação)
   erro     Falha crítica — documento não foi gerado
 """
 
@@ -495,29 +533,40 @@ def main():
 
     print(f"📄 Template : {template_path}")
 
-    # Auto-descoberta
-    chaves  = descobrir_chaves(template_path)
-    tabelas = descobrir_tabelas(args.prints, chaves["img"])
+    # Auto-descoberta de chaves
+    chaves = descobrir_chaves(template_path)
 
     print(f"🖼️  IMG chaves: {chaves['img'] if chaves['img'] else '(nenhuma)'}")
     print(f"📝 TXT chaves: {chaves['txt'] if chaves['txt'] else '(nenhuma)'}")
-    print(f"📊 Tabelas  : {len(tabelas)} encontrada(s)")
 
-    # Filtros
-    filtro = set()
-    if args.tabelas:
-        filtro.update(args.tabelas)
+    # Fonte de tabelas
+    dados_csv: dict = {}
+    tabelas_explicitas: list = []
+
     if args.tabelas_arquivo:
         try:
-            do_arquivo = ler_tabelas_de_arquivo(args.tabelas_arquivo)
-            filtro.update(do_arquivo)
-            print(f"📂 Arquivo  : {len(do_arquivo)} tabela(s) carregada(s) de {args.tabelas_arquivo}")
+            do_arquivo, dados_csv = ler_tabelas_de_arquivo(args.tabelas_arquivo)
+            tabelas_explicitas.extend(do_arquivo)
+            extras = len(next(iter(dados_csv.values()), {}).keys()) if dados_csv else 0
+            info_extras = f", {extras} coluna(s) extra(s)" if extras else ""
+            print(f"📂 Arquivo  : {len(do_arquivo)} tabela(s) carregada(s) de {args.tabelas_arquivo}{info_extras}")
         except Exception as e:
             print(f"❌ Erro ao ler arquivo de tabelas: {e}")
             return
-    if filtro:
-        tabelas = [t for t in tabelas if t in filtro]
-        print(f"🔍 Filtro   : {len(tabelas)} tabela(s) selecionada(s)")
+
+    if args.tabelas:
+        for t in args.tabelas:
+            if t not in tabelas_explicitas:
+                tabelas_explicitas.append(t)
+
+    if tabelas_explicitas:
+        # Lista explícita fornecida — usa diretamente (não depende de prints)
+        tabelas = tabelas_explicitas
+        print(f"📊 Tabelas  : {len(tabelas)} (lista explícita)")
+    else:
+        # Sem lista — descobre via cruzamento prints/ × [IMG:*]
+        tabelas = descobrir_tabelas(args.prints, chaves["img"])
+        print(f"📊 Tabelas  : {len(tabelas)} encontrada(s) via prints/")
 
     if not args.force:
         pendentes  = [t for t in tabelas if not (Path(args.output) / f"{t}.docx").exists()]
@@ -552,7 +601,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futuros = {
             executor.submit(processar_tabela, t, template_path, args.prints,
-                            args.output, chaves, None, on_done, ts): t
+                            args.output, chaves, dados_csv.get(t), on_done, ts): t
             for t in tabelas
         }
         for f in as_completed(futuros):

@@ -137,13 +137,20 @@ FONTE_TITULO  = ("Segoe UI", 13, "bold")
 # LEITURA DE ARQUIVO DE TABELAS
 # ─────────────────────────────────────────────────────────────
 
-def _ler_tabelas_de_arquivo(path: str) -> list:
+def _ler_tabelas_de_arquivo(path: str) -> tuple:
     """
-    Lê nomes de tabelas de um arquivo .txt ou .csv.
+    Lê um arquivo .txt ou .csv de tabelas.
 
-    .txt — uma tabela por linha, linhas em branco e comentários (#) ignorados.
-    .csv — lê a coluna 'nome_tabela' se existir; caso contrário usa a primeira coluna.
-           Suporta delimitadores vírgula (,) e ponto-e-vírgula (;).
+    Retorna (tabelas, dados_por_tabela) onde:
+      tabelas         — list[str] com os nomes das tabelas
+      dados_por_tabela — dict[str, dict] com colunas extras por tabela
+                         ex.: {"VENDAS": {"RESPONSAVEL": "João", "DOMINIO": "Comercial"}}
+
+    .txt — uma tabela por linha; linhas em branco e # ignorados; sem dados extras.
+    .csv — coluna 'nome_tabela' obrigatória (ou primeira coluna).
+           Colunas extras viram chaves [TXT:*] por tabela.
+           Delimitador , ou ; detectado automaticamente.
+           Nomes de colunas são normalizados para maiúsculas sem espaços.
     """
     import csv as _csv
     from pathlib import Path as _Path
@@ -151,6 +158,7 @@ def _ler_tabelas_de_arquivo(path: str) -> list:
     path = str(path)
     ext = _Path(path).suffix.lower()
     tabelas = []
+    dados = {}
 
     with open(path, encoding="utf-8-sig") as f:
         if ext == ".csv":
@@ -161,23 +169,34 @@ def _ler_tabelas_de_arquivo(path: str) -> list:
             except _csv.Error:
                 dialeto = _csv.excel
             reader = _csv.DictReader(f, dialect=dialeto)
-            col = next((c for c in (reader.fieldnames or [])
-                        if c.strip().lower() == "nome_tabela"), None)
-            if col is None and reader.fieldnames:
-                col = reader.fieldnames[0]
+
+            # Normaliza nomes de colunas removendo espaços e BOM
+            fieldnames_raw = reader.fieldnames or []
+            fieldnames = [c.strip() for c in fieldnames_raw]
+
+            col_nome = next((c for c in fieldnames
+                             if c.lower() == "nome_tabela"), None)
+            if col_nome is None and fieldnames:
+                col_nome = fieldnames[0]
+
+            extras = [c for c in fieldnames if c != col_nome]
+
             for row in reader:
-                if col:
-                    val = row.get(col, "").strip()
-                    if val:
-                        tabelas.append(val)
+                # Normaliza chaves da row
+                row_norm = {k.strip(): v.strip() for k, v in row.items() if k}
+                nome = row_norm.get(col_nome, "").strip()
+                if not nome:
+                    continue
+                tabelas.append(nome)
+                if extras:
+                    dados[nome] = {c.upper(): row_norm.get(c, "") for c in extras}
         else:
-            # .txt ou qualquer outro formato — uma por linha
             for linha in f:
                 val = linha.strip()
                 if val and not val.startswith("#"):
                     tabelas.append(val)
 
-    return tabelas
+    return tabelas, dados
 
 
 # ─────────────────────────────────────────────────────────────
@@ -309,7 +328,9 @@ class App(tk.Tk):
 
         self.v_force        = tk.BooleanVar()
         self.v_workers      = tk.IntVar(value=4)
-        self._tabelas_lista = []   # lista interna carregada do arquivo
+        self.v_limite       = tk.IntVar(value=0)   # 0 = sem limite
+        self._tabelas_lista = []   # list[str] carregada do arquivo
+        self._tabelas_dados = {}   # dict[str, dict] colunas extras do CSV
 
         ttk.Checkbutton(opts_frame, text="Forçar reprocessamento (--force)",
                         variable=self.v_force).grid(row=0, column=0, columnspan=3, sticky="w")
@@ -318,6 +339,14 @@ class App(tk.Tk):
             row=1, column=0, sticky="w", pady=(6, 0))
         ttk.Spinbox(opts_frame, from_=1, to=32, textvariable=self.v_workers,
                     width=5).grid(row=1, column=1, sticky="w", padx=6, pady=(6, 0))
+
+        ttk.Label(opts_frame, text="Limite (prints):", background=COR_PAINEL).grid(
+            row=1, column=2, sticky="w", padx=(16, 0), pady=(6, 0))
+        ttk.Spinbox(opts_frame, from_=0, to=99999, textvariable=self.v_limite,
+                    width=7).grid(row=1, column=3, sticky="w", padx=6, pady=(6, 0))
+        ttk.Label(opts_frame, text="(0 = todas)", background=COR_PAINEL,
+                  foreground=COR_SUBTITULO, font=("Segoe UI", 8)).grid(
+            row=1, column=4, sticky="w", pady=(6, 0))
 
         # ── Seleção de tabelas por arquivo ────────────────────
         ttk.Label(opts_frame, text="Filtrar tabelas por arquivo (.txt / .csv):",
@@ -481,7 +510,7 @@ class App(tk.Tk):
         if not path:
             return
 
-        tabelas = _ler_tabelas_de_arquivo(path)
+        tabelas, dados = _ler_tabelas_de_arquivo(path)
 
         if not tabelas:
             messagebox.showwarning(
@@ -492,13 +521,18 @@ class App(tk.Tk):
             return
 
         self._tabelas_lista = tabelas
+        self._tabelas_dados = dados
         self.v_arquivo_tabelas.set(path)
-        self.lbl_tabelas_count.config(
-            text=f"✔ {len(tabelas)} tabela(s) carregada(s) do arquivo",
-            fg=COR_OK)
+
+        extras = len(dados.get(tabelas[0], {})) if dados else 0
+        info = f"✔ {len(tabelas)} tabela(s)"
+        if extras:
+            info += f" · {extras} coluna(s) extra(s) como [TXT:*]"
+        self.lbl_tabelas_count.config(text=info, fg=COR_OK)
 
     def _limpar_arquivo_tabelas(self):
         self._tabelas_lista = []
+        self._tabelas_dados = {}
         self.v_arquivo_tabelas.set("")
         self.lbl_tabelas_count.config(
             text="(sem filtro — processa todas)",
@@ -600,29 +634,38 @@ class App(tk.Tk):
             txt = tk.Text(frame, wrap="word", font=("Segoe UI", 10),
                           bg=COR_PAINEL, fg=COR_TITULO, relief="flat",
                           padx=16, pady=12, state="normal",
-                          selectbackground="#dbeafe")
+                          selectbackground="#dbeafe", cursor="arrow")
             scroll = ttk.Scrollbar(frame, command=txt.yview)
             txt.configure(yscrollcommand=scroll.set)
             scroll.grid(row=0, column=1, sticky="ns")
             txt.grid(row=0, column=0, sticky="nsew")
 
             # Tags de estilo
-            txt.tag_configure("h1",   font=("Segoe UI", 12, "bold"), foreground=COR_TITULO,
-                              spacing1=10, spacing3=4)
-            txt.tag_configure("h2",   font=("Segoe UI", 10, "bold"), foreground="#2563eb",
-                              spacing1=8, spacing3=2)
-            txt.tag_configure("code", font=("Courier New", 10),      foreground="#7c3aed",
-                              background="#f3f0ff")
-            txt.tag_configure("ok",   foreground=COR_OK,   font=("Segoe UI", 10, "bold"))
-            txt.tag_configure("warn", foreground=COR_PARCIAL, font=("Segoe UI", 10, "bold"))
-            txt.tag_configure("err",  foreground=COR_ERRO,    font=("Segoe UI", 10, "bold"))
+            txt.tag_configure("h1",    font=("Segoe UI", 12, "bold"), foreground=COR_TITULO,
+                               spacing1=10, spacing3=4)
+            txt.tag_configure("h2",    font=("Segoe UI", 10, "bold"), foreground="#2563eb",
+                               spacing1=8, spacing3=2)
+            txt.tag_configure("code",  font=("Courier New", 10), foreground="#7c3aed",
+                               background="#f3f0ff")
+            txt.tag_configure("ok",    foreground=COR_OK,      font=("Segoe UI", 10, "bold"))
+            txt.tag_configure("warn",  foreground=COR_PARCIAL, font=("Segoe UI", 10, "bold"))
+            txt.tag_configure("err",   foreground=COR_ERRO,    font=("Segoe UI", 10, "bold"))
             txt.tag_configure("muted", foreground=COR_SUBTITULO)
+            txt.tag_configure("standby", foreground="#92400e", background="#fef3c7",
+                               font=("Segoe UI", 9))
 
             for bloco in conteudo:
                 tag, texto = bloco
                 txt.insert("end", texto, tag)
 
-            txt.config(state="disabled")
+            # Somente leitura mas selecionável — bloqueia edição, permite Ctrl+C / Ctrl+A
+            def _bloquear_edicao(e):
+                if e.state & 0x4 and e.keysym.lower() in ("c", "a"):
+                    return  # permite Ctrl+C e Ctrl+A
+                return "break"
+            txt.bind("<Key>", _bloquear_edicao)
+            txt.bind("<Button-2>", lambda e: "break")  # bloqueia colar com botão do meio
+
             return frame
 
         # ── Aba 1: Como usar ──────────────────────────────────
@@ -633,10 +676,9 @@ class App(tk.Tk):
             ("",     "  Pasta de prints    Onde ficam as imagens geradas\n"),
             ("",     "  Pasta de saída     Onde os .docx serão salvos\n"),
             ("",     "  Pasta de logs      Onde ficam os relatórios de execução\n\n"),
-            ("h2",   "2. Filtre as tabelas (opcional)\n"),
+            ("h2",   "2. Arquivo de tabelas (opcional)\n"),
             ("",     "  Deixe em branco para processar todas as tabelas encontradas.\n"),
-            ("",     "  Para grandes volumes, carregue um arquivo .txt ou .csv com\n"),
-            ("",     "  os nomes das tabelas, um por linha.\n\n"),
+            ("",     "  Carregue um .txt ou .csv para filtrar e/ou passar dados [TXT:*].\n\n"),
             ("h2",   "3. Opções\n"),
             ("code", "  Forçar reprocessamento"),
             ("",     "  reprocessa mesmo que o .docx já exista em output/\n"),
@@ -651,68 +693,68 @@ class App(tk.Tk):
             ("",     " mostra o status de cada tabela.\n\n"),
             ("h2",   "Status dos documentos\n"),
             ("ok",   "  OK       "),
-            ("",     "  Documento gerado com todos os placeholders substituídos\n"),
+            ("",     "  Todos os placeholders substituídos\n"),
             ("warn", "  PARCIAL  "),
             ("",     "  Gerado, mas algum print ou texto estava ausente\n"),
-            ("",     "           (o placeholder fica visível no .docx para identificação)\n"),
+            ("",     "           (placeholder visível no .docx para identificação)\n"),
             ("err",  "  ERRO     "),
             ("",     "  Falha crítica — documento não foi gerado\n\n"),
             ("h2",   "Arquivo de tabelas (.txt)\n"),
             ("muted","  Uma tabela por linha. Linhas com # são ignoradas.\n\n"),
             ("code", "  VENDAS\n  CLIENTES\n  # comentário ignorado\n  PEDIDOS\n\n"),
-            ("h2",   "Arquivo de tabelas (.csv)\n"),
-            ("muted","  Coluna 'nome_tabela' ou primeira coluna. Delimitador , ou ; detectado automaticamente.\n\n"),
-            ("code", "  nome_tabela\n  VENDAS\n  CLIENTES\n  PEDIDOS\n"),
+            ("h2",   "Arquivo de tabelas (.csv) — filtro + dados [TXT:*]\n"),
+            ("muted","  Coluna nome_tabela obrigatória. Colunas extras viram [TXT:*] por tabela.\n"),
+            ("muted","  Delimitador , ou ; detectado automaticamente.\n\n"),
+            ("code", "  nome_tabela ; RESPONSAVEL  ; DOMINIO\n"
+                     "  VENDAS      ; João Silva   ; Comercial\n"
+                     "  CLIENTES    ; Maria Santos ; CRM\n"),
         ])
 
         # ── Aba 2: Como criar o template ──────────────────────
         aba_texto("Criar template", [
             ("h1",   "Como criar o template\n"),
-            ("",     "Crie um arquivo .docx normal no Word. Onde quiser inserir\n"),
-            ("",     "valores dinâmicos, escreva os placeholders abaixo.\n\n"),
-            ("h2",   "Placeholders automáticos (sem configuração)\n"),
-            ("code", "  [TXT:NOME_TABELA]"),
-            ("",     "   nome da tabela\n"),
-            ("code", "  [TXT:DATA]       "),
-            ("",     "   data de geração no formato DD/MM/AAAA\n"),
-            ("code", "  [TXT:DATA_HORA]  "),
-            ("",     "   data e hora: DD/MM/AAAA HH:MM\n"),
-            ("code", "  [TXT:ANO]        "),
-            ("",     "   apenas o ano (ex.: 2026)\n"),
-            ("code", "  [TXT:MES]        "),
-            ("",     "   apenas o mês  (ex.: 04)\n"),
-            ("code", "  [TXT:DIA]        "),
-            ("",     "   apenas o dia  (ex.: 04)\n\n"),
-            ("h2",   "Placeholders de dados externos (via dados.csv)\n"),
-            ("code", "  [TXT:RESPONSAVEL]"),
-            ("",     "  coluna RESPONSAVEL do dados.csv\n"),
-            ("code", "  [TXT:DOMINIO]    "),
-            ("",     "  coluna DOMINIO do dados.csv\n"),
-            ("muted","  Qualquer coluna do arquivo de dados pode virar um placeholder.\n\n"),
-            ("h2",   "Placeholders de imagem\n"),
-            ("code", "  [IMG:visao_geral]"),
-            ("",     "  insere prints/visao_geral_TABELA.png\n"),
-            ("code", "  [IMG:distribuicao]"),
-            ("",     " insere prints/distribuicao_TABELA.png\n\n"),
+            ("",     "Crie um arquivo .docx no Word e use os placeholders abaixo\n"),
+            ("",     "onde quiser inserir valores dinâmicos.\n\n"),
+            ("h2",   "[TXT:*] — texto automático (sem configuração)\n"),
+            ("code", "  [TXT:NOME_TABELA]  "),
+            ("",     " nome da tabela                  ex.: VENDAS\n"),
+            ("code", "  [TXT:DATA]         "),
+            ("",     " data de geração                 ex.: 04/04/2026\n"),
+            ("code", "  [TXT:DATA_HORA]    "),
+            ("",     " data e hora                     ex.: 04/04/2026 14:30\n"),
+            ("code", "  [TXT:ANO]          "),
+            ("",     " ano                             ex.: 2026\n"),
+            ("code", "  [TXT:MES]          "),
+            ("",     " mês                             ex.: 04\n"),
+            ("code", "  [TXT:DIA]          "),
+            ("",     " dia                             ex.: 04\n\n"),
+            ("h2",   "[TXT:*] — texto via CSV (colunas extras)\n"),
+            ("muted","  Qualquer coluna do CSV de tabelas vira um placeholder:\n\n"),
+            ("code", "  [TXT:RESPONSAVEL]  "),
+            ("",     " coluna RESPONSAVEL do CSV\n"),
+            ("code", "  [TXT:DOMINIO]      "),
+            ("",     " coluna DOMINIO do CSV\n"),
+            ("code", "  [TXT:DESCRICAO]    "),
+            ("",     " coluna DESCRICAO do CSV\n\n"),
+            ("h2",   "[IMG:*] — imagem\n"),
+            ("code", "  [IMG:chave]        "),
+            ("",     " prints/chave_TABELA.png (ou .jpg)\n\n"),
+            ("h2",   "[LEG:*] — legenda de print\n"),
+            ("standby", "  Em desenvolvimento — estilo próprio (fonte menor), vinculado ao [IMG:*]\n\n"),
             ("h2",   "Convenção de nome dos prints\n"),
-            ("code", "  chave_NOMETABELA.png"),
-            ("",     "  (ou .jpg / .jpeg)\n\n"),
+            ("code", "  chave_NOMETABELA.png\n\n"),
             ("muted","  Exemplos:\n"),
             ("code", "  visao_geral_VENDAS.png\n"),
             ("code", "  distribuicao_CLIENTES.png\n\n"),
             ("h2",   "Exemplo de template\n"),
-            ("code", "  Tabela: [TXT:NOME_TABELA]          Gerado em: [TXT:DATA]\n"),
-            ("code", "  Responsável: [TXT:RESPONSAVEL]     Domínio: [TXT:DOMINIO]\n\n"),
-            ("code", "  Visão Geral\n"),
-            ("code", "  [IMG:visao_geral]\n\n"),
-            ("code", "  Distribuição de Dados\n"),
-            ("code", "  [IMG:distribuicao]\n\n"),
+            ("code", "  Tabela: [TXT:NOME_TABELA]       Gerado em: [TXT:DATA]\n"),
+            ("code", "  Responsável: [TXT:RESPONSAVEL]  Domínio: [TXT:DOMINIO]\n\n"),
+            ("code", "  Visão Geral\n  [IMG:visao_geral]\n\n"),
+            ("code", "  Distribuição\n  [IMG:distribuicao]\n\n"),
             ("h2",   "Dicas\n"),
-            ("",     "  • Você pode usar placeholders em títulos, cabeçalhos e tabelas do Word\n"),
-            ("",     "  • Se um placeholder não for substituído, ele fica visível no .docx\n"),
-            ("",     "    e o status do documento fica como PARCIAL\n"),
-            ("",     "  • As tabelas são descobertas automaticamente pelos nomes dos prints —\n"),
-            ("",     "    não é necessário nenhum arquivo de controle\n"),
+            ("",     "  • Placeholders funcionam em parágrafos, títulos e células de tabela\n"),
+            ("",     "  • Placeholder não substituído fica visível no .docx → status PARCIAL\n"),
+            ("",     "  • Tabelas são descobertas automaticamente pelos prints — sem lista manual\n"),
         ])
 
         ttk.Button(win, text="Fechar", command=win.destroy).pack(pady=(0, 12))
@@ -743,6 +785,8 @@ class App(tk.Tk):
         force        = self.v_force.get()
         workers      = self.v_workers.get()
         filtro_tab   = list(self._tabelas_lista) if self._tabelas_lista else None
+        dados_tab    = dict(self._tabelas_dados)
+        limite_prints = self.v_limite.get()
 
         # Reset UI
         self._resultados = []
@@ -766,10 +810,13 @@ class App(tk.Tk):
             force=force,
             workers=workers,
             filtro_tab=filtro_tab,
+            dados_tab=dados_tab,
+            limite_prints=limite_prints,
         )).start()
 
     def _thread_execucao(self, template_arg, prints_path, output_path,
-                         logs_path, force, workers, filtro_tab):
+                         logs_path, force, workers, filtro_tab, dados_tab,
+                         limite_prints=0):
         try:
             # Resolver template
             try:
@@ -783,15 +830,21 @@ class App(tk.Tk):
 
             # Auto-descoberta
             chaves  = descobrir_chaves(template_path)
-            tabelas = descobrir_tabelas(prints_path, chaves["img"])
 
             self._log(f"🖼️  [IMG] : {chaves['img'] if chaves['img'] else '(nenhuma)'}", "info")
             self._log(f"📝 [TXT] : {chaves['txt'] if chaves['txt'] else '(nenhuma)'}", "info")
-            self._log(f"📊 Tabelas: {len(tabelas)} encontrada(s)", "info")
 
             if filtro_tab:
-                tabelas = [t for t in tabelas if t in filtro_tab]
-                self._log(f"🔍 Filtro   : {len(tabelas)} tabela(s) selecionada(s)", "info")
+                # Lista explícita fornecida — usa diretamente (não depende de prints)
+                tabelas = list(filtro_tab)
+                self._log(f"📂 Arquivo  : {len(tabelas)} tabela(s) carregada(s) do arquivo", "info")
+            else:
+                # Sem lista explícita — descobre via prints/
+                tabelas = descobrir_tabelas(prints_path, chaves["img"])
+                self._log(f"📊 Tabelas  : {len(tabelas)} encontrada(s) via prints/", "info")
+                if limite_prints and limite_prints > 0:
+                    tabelas = tabelas[:limite_prints]
+                    self._log(f"🔢 Limite   : {len(tabelas)} tabela(s) (limite aplicado)", "info")
 
             if not force:
                 pendentes = [t for t in tabelas
@@ -842,7 +895,7 @@ class App(tk.Tk):
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futuros = {
                     executor.submit(processar_tabela, t, template_path, prints_path,
-                                    output_path, chaves, None, on_done, ts): t
+                                    output_path, chaves, dados_tab.get(t), on_done, ts): t
                     for t in tabelas
                 }
                 for f in as_completed(futuros):
