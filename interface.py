@@ -116,45 +116,54 @@ from gera_word import (
 # PALETA DE CORES E TIPOGRAFIA  (refinada — visual mais moderno)
 # ─────────────────────────────────────────────────────────────
 
+# ── Paleta principal ─────────────────────────────────────────
+# #3117ea  indigo profundo   (mais escuro)
+# #5e3aef  violeta vibrante
+# #8b5cf5  roxo médio
+# #b77ffa  lavanda
+# #e4a2ff  lilás claro       (mais claro)
+
+COR_P1 = "#3117ea"
+COR_P2 = "#5e3aef"
+COR_P3 = "#8b5cf5"
+COR_P4 = "#b77ffa"
+COR_P5 = "#e4a2ff"
+
 # Superfícies
-COR_BG          = "#f1f5f9"   # fundo geral (slate-100)
+COR_BG          = "#f7f5ff"   # leve tom lilás no fundo
 COR_PAINEL      = "#ffffff"   # cards
-COR_PAINEL_ALT  = "#f8fafc"   # variação suave para destacar áreas internas
-COR_BORDA       = "#e2e8f0"   # borda card (slate-200)
-COR_BORDA_FORTE = "#cbd5e1"   # borda em foco / hover
+COR_PAINEL_ALT  = "#faf8ff"   # variação suave para destacar áreas internas
+COR_BORDA       = "#e9e3ff"   # borda card (lilás muito claro)
+COR_BORDA_FORTE = COR_P4      # borda em foco / hover
 
 # Texto
-COR_TITULO     = "#0f172a"    # slate-900
-COR_TEXTO      = "#1e293b"    # slate-800
-COR_SUBTITULO  = "#64748b"    # slate-500
-COR_MUTED      = "#94a3b8"    # slate-400
+COR_TITULO     = "#1a1140"    # azul-violeta profundo (legível, harmoniza)
+COR_TEXTO      = "#2d2161"
+COR_SUBTITULO  = "#6b5da3"    # roxo dessaturado para subtítulos
+COR_MUTED      = "#a99fce"    # mute lilás
 
-# Estados
+# Estados (semânticos — preservados, mas harmonizados)
 COR_OK         = "#10b981"    # emerald-500
-COR_OK_BG      = "#d1fae5"    # emerald-100
+COR_OK_BG      = "#d1fae5"
 COR_PARCIAL    = "#f59e0b"    # amber-500
-COR_PARCIAL_BG = "#fef3c7"    # amber-100
+COR_PARCIAL_BG = "#fef3c7"
 COR_ERRO       = "#ef4444"    # red-500
-COR_ERRO_BG    = "#fee2e2"    # red-100
-COR_INFO       = "#3b82f6"    # blue-500
-COR_INFO_BG    = "#dbeafe"    # blue-100
+COR_ERRO_BG    = "#fee2e2"
+COR_INFO       = COR_P3
+COR_INFO_BG    = "#f1eaff"
 
 # Botão primário (CTA)
-COR_BTN        = "#2563eb"    # blue-600
-COR_BTN_HOVER  = "#1d4ed8"    # blue-700
+COR_BTN        = COR_P2       # violeta vibrante
+COR_BTN_HOVER  = COR_P1       # indigo profundo (mais escuro)
 COR_BTN_FG     = "#ffffff"
-COR_BTN_OFF    = "#94a3b8"    # quando disabled
+COR_BTN_OFF    = "#c8c0e6"    # disabled
 
-# Header (sidebar topo)
-COR_HEADER     = "#0f172a"    # slate-900
+# Header
+COR_HEADER     = COR_P1       # indigo profundo
 COR_HEADER_FG  = "#ffffff"
-COR_HEADER_SUB = "#94a3b8"    # slate-400
-COR_HEADER_BTN = "#1e293b"    # slate-800
-COR_HEADER_BTN_HOVER = "#334155"  # slate-700
-
-# Console (log)
-COR_LOG_BG     = "#0b1020"
-COR_LOG_FG     = "#e2e8f0"
+COR_HEADER_SUB = COR_P5       # lilás claro
+COR_HEADER_BTN = COR_P2
+COR_HEADER_BTN_HOVER = COR_P3
 
 # Fontes
 FONTE_MONO    = ("Cascadia Mono", 10) if sys.platform == "win32" else ("Menlo", 10)
@@ -242,16 +251,125 @@ def _ler_tabelas_de_arquivo(path: str) -> tuple:
 # COMPONENTES VISUAIS
 # ─────────────────────────────────────────────────────────────
 
+def _rounded_polygon(canvas, x1, y1, x2, y2, radius=12, **kw):
+    """Desenha um retângulo com cantos arredondados usando smooth polygon.
+
+    Em Python 3.14, create_polygon não aceita mais uma lista como primeiro
+    argumento — é preciso desempacotar com *points.
+    """
+    r = radius
+    points = (
+        x1 + r, y1,  x2 - r, y1,
+        x2, y1,      x2, y1 + r,
+        x2, y2 - r,  x2, y2,
+        x2 - r, y2,  x1 + r, y2,
+        x1, y2,      x1, y2 - r,
+        x1, y1 + r,  x1, y1,
+    )
+    return canvas.create_polygon(*points, smooth=True, **kw)
+
+
 class Card(tk.Frame):
-    """Painel branco com borda sutil — simula 'card' de UI moderna."""
+    """Painel branco com borda sutil arredondada (simulada via highlight)."""
     def __init__(self, parent, **kw):
         super().__init__(parent, bg=COR_PAINEL,
                          highlightbackground=COR_BORDA,
                          highlightthickness=1, bd=0, **kw)
 
 
+class RoundedButton(tk.Canvas):
+    """
+    Botão com cantos realmente arredondados, desenhado em Canvas.
+    Suporta hover, disabled e troca dinâmica de texto/cor.
+    """
+    def __init__(self, parent, text="", command=None,
+                 bg=COR_BTN, fg=COR_BTN_FG,
+                 hover_bg=COR_BTN_HOVER, hover_fg=None,
+                 font=FONTE_UI_BOLD, radius=14,
+                 padx=24, pady=12, **kw):
+        # Calcula tamanho com fonte temporária
+        import tkinter.font as _tkf
+        f = _tkf.Font(font=font)
+        tw = f.measure(text)
+        th = f.metrics("linespace")
+        w = tw + padx * 2
+        h = th + pady * 2
+
+        # Pega cor de fundo do parent de forma defensiva (compat. ttk e Python 3.14)
+        try:
+            parent_bg = parent.cget("bg")
+        except Exception:
+            parent_bg = COR_PAINEL
+        super().__init__(parent, width=w, height=h,
+                         bg=parent_bg,
+                         highlightthickness=0, bd=0, **kw)
+        # NB: tkinter usa self._w internamente como pathname do widget Tcl,
+        # então NÃO sobrescrever! Usamos _btn_w / _btn_h.
+        self._btn_w, self._btn_h = w, h
+        self._radius = radius
+        self._bg = bg
+        self._fg = fg
+        self._hover_bg = hover_bg or bg
+        self._hover_fg = hover_fg or fg
+        self._font = font
+        self._text = text
+        self._command = command
+        self._state = "normal"
+
+        self._shape = _rounded_polygon(self, 0, 0, w, h,
+                                        radius=radius, fill=bg, outline=bg)
+        self._label = self.create_text(w // 2, h // 2, text=text,
+                                        fill=fg, font=font)
+        self.configure(cursor="hand2")
+
+        self.bind("<Enter>",      self._on_enter)
+        self.bind("<Leave>",      self._on_leave)
+        self.bind("<Button-1>",   self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _on_enter(self, _):
+        if self._state == "disabled":
+            return
+        self.itemconfig(self._shape, fill=self._hover_bg, outline=self._hover_bg)
+        self.itemconfig(self._label, fill=self._hover_fg)
+
+    def _on_leave(self, _):
+        if self._state == "disabled":
+            return
+        self.itemconfig(self._shape, fill=self._bg, outline=self._bg)
+        self.itemconfig(self._label, fill=self._fg)
+
+    def _on_press(self, _):
+        if self._state == "disabled":
+            return
+        # Pequeno feedback visual
+        self.itemconfig(self._shape, fill=COR_P1, outline=COR_P1)
+
+    def _on_release(self, _):
+        if self._state == "disabled":
+            return
+        self._on_enter(None)
+        if callable(self._command):
+            self._command()
+
+    def configure_state(self, state):
+        self._state = state
+        if state == "disabled":
+            self.itemconfig(self._shape, fill=COR_BTN_OFF, outline=COR_BTN_OFF)
+            self.itemconfig(self._label, fill="#ffffff")
+            self.configure(cursor="arrow")
+        else:
+            self.itemconfig(self._shape, fill=self._bg, outline=self._bg)
+            self.itemconfig(self._label, fill=self._fg)
+            self.configure(cursor="hand2")
+
+    def set_text(self, text):
+        self._text = text
+        self.itemconfig(self._label, text=text)
+
+
 class HoverButton(tk.Button):
-    """Botão tk plano com efeito hover."""
+    """Botão tk plano com efeito hover (para botões secundários)."""
     def __init__(self, parent, hover_bg=None, hover_fg=None, **kw):
         super().__init__(parent, **kw)
         self._bg_default = kw.get("bg", self.cget("bg"))
@@ -338,6 +456,36 @@ class CampoPasta(tk.Frame):
         else:
             self.lbl_status.config(text="!", fg=COR_PARCIAL)
 
+    def flash(self, ciclos=4, intervalo=140):
+        """
+        Faz o input piscar (alterna borda vermelha / normal) para indicar
+        que falta selecionar um caminho válido. Não bloqueia a UI.
+        """
+        cor_alerta = COR_ERRO
+        cor_normal = COR_BORDA
+
+        def _toggle(restantes, ligado):
+            if restantes <= 0:
+                self.entry.config(highlightbackground=cor_normal,
+                                  highlightcolor=COR_BTN,
+                                  highlightthickness=1)
+                self.lbl_status.config(text="!", fg=COR_ERRO)
+                return
+            self.entry.config(
+                highlightbackground=cor_alerta if ligado else cor_normal,
+                highlightcolor=cor_alerta if ligado else COR_BTN,
+                highlightthickness=2 if ligado else 1,
+            )
+            self.entry.after(intervalo,
+                              lambda: _toggle(restantes - 1, not ligado))
+
+        _toggle(ciclos, True)
+        # Foco visual no campo problemático
+        try:
+            self.entry.focus_set()
+        except Exception:
+            pass
+
 
 # ─────────────────────────────────────────────────────────────
 # JANELA PRINCIPAL
@@ -355,6 +503,8 @@ class App(tk.Tk):
 
         self._resultados = []
         self._running = False
+        self._cancelado = threading.Event()
+        self._executor_atual = None
 
         self._aplicar_estilo()
         self._build_ui()
@@ -521,14 +671,17 @@ class App(tk.Tk):
         self.v_output   = tk.StringVar(value="output/")
         self.v_logs     = tk.StringVar(value="logs/")
 
-        CampoPasta(grid_pastas, "Template (.docx)", self.v_template,
-                   tipo="file").grid(row=0, column=0, sticky="ew", padx=(0, 10), pady=6)
-        CampoPasta(grid_pastas, "Pasta de prints", self.v_prints
-                   ).grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=6)
-        CampoPasta(grid_pastas, "Pasta de saída", self.v_output
-                   ).grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=6)
-        CampoPasta(grid_pastas, "Pasta de logs", self.v_logs
-                   ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=6)
+        # Mantemos referencias aos campos para poder piscar quando invalidos
+        self._campos = {}
+        self._campos["template"] = CampoPasta(
+            grid_pastas, "Template (.docx)", self.v_template, tipo="file")
+        self._campos["template"].grid(row=0, column=0, sticky="ew", padx=(0, 10), pady=6)
+        self._campos["prints"] = CampoPasta(grid_pastas, "Pasta de prints", self.v_prints)
+        self._campos["prints"].grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=6)
+        self._campos["output"] = CampoPasta(grid_pastas, "Pasta de saída", self.v_output)
+        self._campos["output"].grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=6)
+        self._campos["logs"] = CampoPasta(grid_pastas, "Pasta de logs", self.v_logs)
+        self._campos["logs"].grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=6)
 
         # ── Card de opções + Card CTA ─────────────────────────
         linha_opc = tk.Frame(body, bg=COR_BG)
@@ -651,15 +804,25 @@ class App(tk.Tk):
                  font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL,
                  justify="center").pack(pady=(0, 12))
 
-        self.btn_run = HoverButton(
+        self.btn_run = RoundedButton(
             bloco_cta, text="▶  Gerar Documentos",
             font=("Segoe UI", 12, "bold"),
             bg=COR_BTN, fg=COR_BTN_FG,
             hover_bg=COR_BTN_HOVER, hover_fg=COR_BTN_FG,
-            relief="flat", bd=0, cursor="hand2",
-            padx=20, pady=14,
+            radius=18, padx=22, pady=14,
             command=self._executar)
-        self.btn_run.pack(fill="x", expand=False)
+        self.btn_run.pack(pady=(2, 2))
+
+        # Botão Parar — só fica habilitado durante a execução
+        self.btn_stop = RoundedButton(
+            bloco_cta, text="■  Parar",
+            font=("Segoe UI", 10, "bold"),
+            bg=COR_ERRO_BG, fg=COR_ERRO,
+            hover_bg="#fecaca", hover_fg=COR_ERRO,
+            radius=14, padx=18, pady=8,
+            command=self._parar_execucao)
+        self.btn_stop.pack(pady=(8, 0))
+        self.btn_stop.configure_state("disabled")
 
         # ── Card de Progresso ─────────────────────────────────
         card_prog = Card(body)
@@ -688,96 +851,71 @@ class App(tk.Tk):
         self.progressbar.pack(fill="x", pady=(8, 0))
 
         # ╭─────────────────────────────────────────────────────╮
-        # │  NOTEBOOK: Log + Resultados                         │
+        # │  PAINEL DE RESULTADOS (unico — sem aba de log)      │
         # ╰─────────────────────────────────────────────────────╯
-        notebook_wrap = Card(body)
-        notebook_wrap.grid(row=3, column=0, sticky="nsew")
         body.rowconfigure(3, weight=1)
+        self._build_painel_resultados(body)
 
-        self.notebook = ttk.Notebook(notebook_wrap)
-        self.notebook.pack(fill="both", expand=True, padx=2, pady=2)
+    # ── Painel de Resultados ──────────────────────────────────
 
-        self._build_aba_log()
-        self._build_aba_resultados()
+    def _build_painel_resultados(self, parent):
+        wrapper = Card(parent)
+        wrapper.grid(row=3, column=0, sticky="nsew")
 
-    # ── Aba Log ───────────────────────────────────────────────
-
-    def _build_aba_log(self):
-        frame = tk.Frame(self.notebook, bg=COR_PAINEL)
-        self.notebook.add(frame, text="  Log  ")
-        frame.rowconfigure(0, weight=1)
+        frame = tk.Frame(wrapper, bg=COR_PAINEL)
+        frame.pack(fill="both", expand=True, padx=2, pady=2)
+        frame.rowconfigure(2, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        wrapper = tk.Frame(frame, bg=COR_LOG_BG)
-        wrapper.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        wrapper.rowconfigure(0, weight=1)
-        wrapper.columnconfigure(0, weight=1)
+        # ── Cabeçalho do painel: titulo + abrir output ────────
+        cabec = tk.Frame(frame, bg=COR_PAINEL)
+        cabec.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 6))
 
-        self.log_text = tk.Text(
-            wrapper, state="disabled",
-            bg=COR_LOG_BG, fg=COR_LOG_FG,
-            font=FONTE_MONO, wrap="word",
-            insertbackground=COR_LOG_FG,
-            selectbackground="#1e293b",
-            relief="flat", bd=0,
-            padx=14, pady=12)
+        tk.Label(cabec, text="Resultados",
+                 font=FONTE_SECAO, fg=COR_TITULO, bg=COR_PAINEL).pack(side="left")
+        tk.Label(cabec, text="status por tabela após a execução",
+                 font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL).pack(side="left", padx=8)
 
-        scroll_log = ttk.Scrollbar(wrapper, command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=scroll_log.set)
-        scroll_log.grid(row=0, column=1, sticky="ns")
-        self.log_text.grid(row=0, column=0, sticky="nsew")
-
-        # Tags de cor no log
-        self.log_text.tag_configure("ok",      foreground="#86efac")
-        self.log_text.tag_configure("parcial", foreground="#fcd34d")
-        self.log_text.tag_configure("erro",    foreground="#fca5a5")
-        self.log_text.tag_configure("info",    foreground="#93c5fd")
-        self.log_text.tag_configure("destaque", foreground="#f0abfc",
-                                     font=(FONTE_MONO[0], FONTE_MONO[1], "bold"))
-
-        # Mensagem inicial
-        self._log("Pronto para iniciar. Configure as pastas acima e clique em \"Gerar Documentos\".", "info")
-
-    # ── Aba Resultados ────────────────────────────────────────
-
-    def _build_aba_resultados(self):
-        frame = tk.Frame(self.notebook, bg=COR_PAINEL)
-        self.notebook.add(frame, text="  Resultados  ")
-        frame.rowconfigure(1, weight=1)
-        frame.columnconfigure(0, weight=1)
-
-        # Barra superior: badges + abrir output
-        topo = tk.Frame(frame, bg=COR_PAINEL_ALT, height=56)
-        topo.grid(row=0, column=0, columnspan=2, sticky="ew")
-        topo.pack_propagate(False)
-
-        bloco_badges = tk.Frame(topo, bg=COR_PAINEL_ALT)
-        bloco_badges.pack(side="left", padx=14, pady=10)
-
-        self.lbl_resumo_ok      = self._badge(bloco_badges, "OK",      "—", COR_OK,      COR_OK_BG)
-        self.lbl_resumo_parcial = self._badge(bloco_badges, "Parcial", "—", COR_PARCIAL, COR_PARCIAL_BG)
-        self.lbl_resumo_erro    = self._badge(bloco_badges, "Erro",    "—", COR_ERRO,    COR_ERRO_BG)
-
-        self.lbl_resumo_ok.pack(side="left", padx=(0, 8))
-        self.lbl_resumo_parcial.pack(side="left", padx=(0, 8))
-        self.lbl_resumo_erro.pack(side="left")
-
-        # Botão abrir output
-        HoverButton(topo, text="📂 Abrir pasta output",
-                    font=FONTE_UI,
-                    bg=COR_PAINEL, fg=COR_TITULO,
-                    hover_bg=COR_BORDA, hover_fg=COR_TITULO,
+        HoverButton(cabec, text="📂  Abrir pasta output",
+                    font=FONTE_UI_BOLD,
+                    bg=COR_INFO_BG, fg=COR_P1,
+                    hover_bg=COR_P5, hover_fg=COR_P1,
                     relief="flat", bd=0, cursor="hand2",
                     padx=14, pady=6,
-                    command=self._abrir_output).pack(side="right", padx=14, pady=12)
+                    command=self._abrir_output).pack(side="right")
 
-        # Treeview de resultados
-        colunas = ("tabela", "status", "imgs_ok", "ausentes", "erro")
+        # ── Linha de estatisticas (cards de numero) ───────────
+        stats = tk.Frame(frame, bg=COR_PAINEL)
+        stats.grid(row=1, column=0, sticky="ew", padx=18, pady=(4, 10))
+        for i in range(6):
+            stats.columnconfigure(i, weight=1, uniform="stat")
+
+        self._stat_tabelas  = self._stat_card(stats, "Tabelas",  "—", "📊", COR_P1)
+        self._stat_prints   = self._stat_card(stats, "Prints",   "—", "🖼️", COR_P2)
+        self._stat_docs     = self._stat_card(stats, "Documentos","—", "📄", COR_P3)
+        self._stat_ok       = self._stat_card(stats, "OK",       "—", "✓",  COR_OK)
+        self._stat_parcial  = self._stat_card(stats, "Parcial",  "—", "!",  COR_PARCIAL)
+        self._stat_erro     = self._stat_card(stats, "Erro",     "—", "✕",  COR_ERRO)
+
+        self._stat_tabelas.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self._stat_prints .grid(row=0, column=1, sticky="nsew", padx=6)
+        self._stat_docs   .grid(row=0, column=2, sticky="nsew", padx=6)
+        self._stat_ok     .grid(row=0, column=3, sticky="nsew", padx=6)
+        self._stat_parcial.grid(row=0, column=4, sticky="nsew", padx=6)
+        self._stat_erro   .grid(row=0, column=5, sticky="nsew", padx=(6, 0))
+
+        # Aliases para retrocompatibilidade com codigo existente
+        self.lbl_resumo_ok      = self._stat_ok
+        self.lbl_resumo_parcial = self._stat_parcial
+        self.lbl_resumo_erro    = self._stat_erro
+
+        # ── Treeview ──────────────────────────────────────────
         tree_wrap = tk.Frame(frame, bg=COR_PAINEL)
-        tree_wrap.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=10, pady=(8, 0))
+        tree_wrap.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 0))
         tree_wrap.rowconfigure(0, weight=1)
         tree_wrap.columnconfigure(0, weight=1)
 
+        colunas = ("tabela", "status", "imgs_ok", "ausentes", "erro")
         self.tree = ttk.Treeview(
             tree_wrap, columns=colunas, show="headings",
             style="Resultados.Treeview", selectmode="browse")
@@ -804,15 +942,15 @@ class App(tk.Tk):
         self.tree.grid(row=0, column=0, sticky="nsew")
 
         # Empty state
-        self.lbl_empty = tk.Label(tree_wrap,
-                                   text="Os resultados aparecerão aqui após a execução.",
-                                   font=FONTE_UI, fg=COR_MUTED, bg=COR_PAINEL)
+        self.lbl_empty = tk.Label(
+            tree_wrap,
+            text="Os resultados aparecerão aqui após a execução.",
+            font=FONTE_UI, fg=COR_MUTED, bg=COR_PAINEL)
         self.lbl_empty.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Filtro de status
+        # ── Filtro ────────────────────────────────────────────
         filtro_frame = tk.Frame(frame, bg=COR_PAINEL)
-        filtro_frame.grid(row=2, column=0, columnspan=2, sticky="ew",
-                          padx=14, pady=(6, 10))
+        filtro_frame.grid(row=3, column=0, sticky="ew", padx=18, pady=(8, 12))
 
         tk.Label(filtro_frame, text="Filtrar:",
                  font=FONTE_UI, fg=COR_SUBTITULO, bg=COR_PAINEL
@@ -826,6 +964,31 @@ class App(tk.Tk):
                 filtro_frame, text=txt,
                 variable=self.v_filtro, value=valor,
                 command=self._aplicar_filtro).pack(side="left", padx=4)
+
+    # ── Stat card (numero grande + label) ─────────────────────
+
+    def _stat_card(self, parent, label, valor, icone, cor):
+        """Cartão grande com numero destacado para estatistica."""
+        card = tk.Frame(parent, bg=COR_PAINEL_ALT,
+                         highlightbackground=COR_BORDA,
+                         highlightthickness=1, bd=0)
+
+        # Linha 1: icone + label
+        topo = tk.Frame(card, bg=COR_PAINEL_ALT)
+        topo.pack(fill="x", padx=12, pady=(10, 0))
+        tk.Label(topo, text=icone, font=("Segoe UI", 12),
+                 fg=cor, bg=COR_PAINEL_ALT).pack(side="left")
+        tk.Label(topo, text=label.upper(), font=("Segoe UI", 8, "bold"),
+                 fg=COR_SUBTITULO, bg=COR_PAINEL_ALT).pack(side="left", padx=(6, 0))
+
+        # Linha 2: numero grande
+        val_lbl = tk.Label(card, text=valor, font=("Segoe UI", 22, "bold"),
+                            fg=cor, bg=COR_PAINEL_ALT)
+        val_lbl.pack(anchor="w", padx=12, pady=(0, 10))
+
+        card._valor_lbl = val_lbl
+        card._valor_label = label  # nome legivel para retrocompatibilidade
+        return card
 
     def _badge(self, parent, label, valor, cor_fg, cor_bg):
         """Pill-style badge: 'OK · 12'."""
@@ -842,7 +1005,11 @@ class App(tk.Tk):
         return fr
 
     def _badge_set(self, badge, valor):
+        """Atualiza o numero exibido num stat_card (ou badge antigo)."""
         badge._valor_lbl.config(text=str(valor))
+
+    def _set_stat(self, stat_card, valor):
+        stat_card._valor_lbl.config(text=str(valor))
 
     # ── Carregar arquivo de tabelas ───────────────────────────
 
@@ -896,16 +1063,9 @@ class App(tk.Tk):
     # ── Helpers de UI ─────────────────────────────────────────
 
     def _log(self, msg, tag=None):
-        """Adiciona linha ao log (thread-safe)."""
-        def _do():
-            self.log_text.config(state="normal")
-            if tag:
-                self.log_text.insert("end", msg + "\n", tag)
-            else:
-                self.log_text.insert("end", msg + "\n")
-            self.log_text.see("end")
-            self.log_text.config(state="disabled")
-        self.after(0, _do)
+        """No-op — a aba de Log foi removida; o relatório completo fica no arquivo de logs."""
+        # Mantido como stub para compatibilidade com chamadas internas existentes.
+        return
 
     def _set_status(self, msg, cor=COR_TEXTO):
         self.after(0, lambda: self.lbl_status.config(text=msg, fg=cor))
@@ -944,9 +1104,11 @@ class App(tk.Tk):
         ok      = sum(1 for r in self._resultados if r["status"] == "ok")
         parcial = sum(1 for r in self._resultados if r["status"] == "parcial")
         erro    = sum(1 for r in self._resultados if r["status"] == "erro")
-        self._badge_set(self.lbl_resumo_ok, ok)
-        self._badge_set(self.lbl_resumo_parcial, parcial)
-        self._badge_set(self.lbl_resumo_erro, erro)
+        gerados = sum(1 for r in self._resultados if r["status"] in ("ok", "parcial"))
+        self._set_stat(self._stat_ok,      ok)
+        self._set_stat(self._stat_parcial, parcial)
+        self._set_stat(self._stat_erro,    erro)
+        self._set_stat(self._stat_docs,    gerados)
 
     def _aplicar_filtro(self):
         """Re-popula a Treeview de acordo com o filtro selecionado."""
@@ -1033,7 +1195,7 @@ class App(tk.Tk):
             txt.bind("<Button-2>", lambda e: "break")
             return frame
 
-        # ── Aba 1: Como usar ──────────────────────────────────
+        # Aba 1: Como usar
         aba_texto("Como usar", [
             ("h1",   "Como usar a interface\n"),
             ("h2",   "1. Configure as pastas\n"),
@@ -1078,7 +1240,7 @@ class App(tk.Tk):
                      "  CLIENTES    ; Maria Santos ; CRM\n"),
         ])
 
-        # ── Aba 2: Como criar o template ──────────────────────
+        # Aba 2: Como criar o template
         aba_texto("Criar template", [
             ("h1",   "Como criar o template\n"),
             ("",     "Crie um arquivo .docx no Word e use os placeholders abaixo\n"),
@@ -1125,7 +1287,6 @@ class App(tk.Tk):
             ("",     "  • Tabelas são descobertas automaticamente pelos prints — sem lista manual\n"),
         ])
 
-        # Botão fechar
         rodape = tk.Frame(win, bg=COR_BG)
         rodape.pack(fill="x", pady=(0, 12), padx=14)
         HoverButton(rodape, text="Fechar",
@@ -1149,8 +1310,7 @@ class App(tk.Tk):
         else:
             subprocess.run(["xdg-open", pasta])
 
-    # ── Execução ──────────────────────────────────────────────
-
+    # Execução
     def _executar(self):
         if self._running:
             return
@@ -1161,32 +1321,56 @@ class App(tk.Tk):
         logs_path    = self.v_logs.get().strip()
         force        = self.v_force.get()
         workers      = self.v_workers.get()
-        filtro_tab    = list(self._tabelas_lista) if self._tabelas_lista else None
-        dados_tab     = dict(self._tabelas_dados)
+        filtro_tab   = list(self._tabelas_lista) if self._tabelas_lista else None
+        dados_tab    = dict(self._tabelas_dados)
         try:
             limite_prints = int(self.v_limite.get())
         except (ValueError, TypeError):
             limite_prints = 0
         prefixo = self.v_prefixo.get().strip()
 
+        # ── Validação de caminhos: pisca o input quando inválido ───
+        invalidos = []
+        # Template — precisa existir (arquivo ou pasta)
+        if not template_arg or not Path(template_arg).exists():
+            invalidos.append("template")
+        # Prints — só obrigatória quando não há filtro vindo de CSV/TXT
+        if not filtro_tab:
+            if not prints_path or not Path(prints_path).exists():
+                invalidos.append("prints")
+        # Saída — precisa do caminho preenchido (será criada se não existir)
+        if not output_path:
+            invalidos.append("output")
+        if not logs_path:
+            invalidos.append("logs")
+
+        if invalidos:
+            for chave in invalidos:
+                campo = self._campos.get(chave)
+                if campo:
+                    campo.flash()
+            self._set_status("Preencha os caminhos destacados antes de gerar.",
+                             COR_ERRO)
+            return
+
         # Reset UI
         self._resultados = []
         for item in self.tree.get_children():
             self.tree.delete(item)
-        # Mostra empty state se a aba existir
         if not self.lbl_empty.winfo_ismapped():
             self.lbl_empty.place(relx=0.5, rely=0.5, anchor="center")
-        self.log_text.config(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.config(state="disabled")
         self._atualizar_resumo()
+        self._set_stat(self._stat_tabelas, "-")
+        self._set_stat(self._stat_prints,  "-")
+        self._set_stat(self._stat_docs,    "0")
         self.v_prog.set(0)
         self.lbl_pct.config(text="0%")
 
         self._running = True
-        self.btn_run.config(state="disabled", text="Processando...",
-                             bg=COR_BTN_OFF)
-        self.notebook.select(0)  # vai pro log
+        self._cancelado.clear()
+        self.btn_run.configure_state("disabled")
+        self.btn_run.set_text("Processando...")
+        self.btn_stop.configure_state("normal")
 
         threading.Thread(target=self._thread_execucao, daemon=True, kwargs=dict(
             template_arg=template_arg,
@@ -1201,130 +1385,142 @@ class App(tk.Tk):
             prefixo=prefixo,
         )).start()
 
+    def _contar_prints(self, prints_path):
+        """Conta arquivos de imagem na pasta de prints (png/jpg/jpeg)."""
+        try:
+            pasta = Path(prints_path)
+            if not pasta.exists():
+                return 0
+            exts = {".png", ".jpg", ".jpeg"}
+            return sum(1 for p in pasta.iterdir()
+                        if p.is_file() and p.suffix.lower() in exts)
+        except Exception:
+            return 0
+
     def _thread_execucao(self, template_arg, prints_path, output_path,
                          logs_path, force, workers, filtro_tab, dados_tab,
                          limite_prints=0, prefixo=""):
         try:
-            # Resolver template
             try:
                 template_path = resolver_template(template_arg)
             except FileNotFoundError as e:
-                self._log(f"❌ {e}", "erro")
                 self._set_status(f"Erro: {e}", COR_ERRO)
+                campo = self._campos.get("template")
+                if campo:
+                    self.after(0, campo.flash)
                 return
 
-            self._log(f"📄 Template : {template_path}", "info")
+            chaves = descobrir_chaves(template_path)
 
-            # Auto-descoberta
-            chaves  = descobrir_chaves(template_path)
-
-            self._log(f"🖼️  [IMG] : {chaves['img'] if chaves['img'] else '(nenhuma)'}", "info")
-            self._log(f"📝 [TXT] : {chaves['txt'] if chaves['txt'] else '(nenhuma)'}", "info")
+            n_prints = self._contar_prints(prints_path)
+            self.after(0, lambda: self._set_stat(self._stat_prints, n_prints))
 
             if filtro_tab:
-                # Lista explícita fornecida — usa diretamente (não depende de prints)
                 tabelas = list(filtro_tab)
-                self._log(f"📂 Arquivo  : {len(tabelas)} tabela(s) carregada(s) do arquivo", "info")
             else:
-                # Sem lista explícita — descobre via prints/
                 tabelas = descobrir_tabelas(prints_path, chaves["img"])
-                self._log(f"📊 Tabelas  : {len(tabelas)} encontrada(s) via prints/", "info")
-                if limite_prints > 0:
-                    tabelas = tabelas[:limite_prints]
-                    self._log(f"🔢 Limite   : {len(tabelas)} tabela(s) (limite aplicado)", "info")
 
-            if prefixo:
-                self._log(f"🏷️  Prefixo  : {prefixo}", "info")
+            if limite_prints > 0 and len(tabelas) > limite_prints:
+                tabelas = tabelas[:limite_prints]
+
+            self.after(0, lambda total=len(tabelas):
+                        self._set_stat(self._stat_tabelas, total))
 
             if not force:
                 pendentes = [t for t in tabelas
                              if not (Path(output_path) / f"{prefixo}{t}.docx").exists()]
-                ignoradas = len(tabelas) - len(pendentes)
-                if ignoradas:
-                    self._log(f"⏭️  {ignoradas} já processada(s) — use 'Forçar' para reprocessar", "info")
                 tabelas = pendentes
 
             if not tabelas:
-                self._log("✅ Nada a processar.", "ok")
                 self._set_status("Nada a processar.", COR_OK)
                 return
 
             from datetime import datetime as _dt
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            # Timestamp fixo para todo o lote — DATA/DATA_HORA consistentes entre docs
             ts = _dt.now()
-            self._log(f"\n🚀 Iniciando {len(tabelas)} tabela(s) com {workers} worker(s)...", "destaque")
-            self._log(f"📅 Timestamp : {ts.strftime('%d/%m/%Y %H:%M:%S')}\n", "info")
             self._set_status(f"Processando 0 / {len(tabelas)}...", COR_INFO)
 
             total = len(tabelas)
             concluidos = [0]
 
             def on_done(resultado):
+                # Quando cancelado, não atualiza mais a UI com novos resultados
+                if self._cancelado.is_set():
+                    return
                 self._resultados.append(resultado)
                 self._adicionar_resultado(resultado)
                 concluidos[0] += 1
-
-                status = resultado["status"]
-                tag = status
-                icon = {"ok": "✅", "parcial": "⚠️ ", "erro": "❌"}.get(status, "?")
-                linha = f"{icon} [{status.upper():7}] {resultado['tabela']}"
-                if resultado["prints_ausentes"]:
-                    linha += f"  — IMG ausentes: {', '.join(resultado['prints_ausentes'])}"
-                if resultado["textos_ausentes"]:
-                    linha += f"  — TXT ausentes: {', '.join(resultado['textos_ausentes'])}"
-                if resultado["erro"]:
-                    linha += f"  — {resultado['erro']}"
-                self._log(linha, tag)
-
                 pct = concluidos[0] / total * 100
                 self._set_progresso(pct)
-                self._set_status(f"Processando {concluidos[0]} / {total}...", COR_INFO)
+                self._set_status(f"Processando {concluidos[0]} / {total}...",
+                                 COR_INFO)
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
+                self._executor_atual = executor
                 futuros = {
-                    executor.submit(processar_tabela, t, template_path, prints_path,
-                                    output_path, chaves, dados_tab.get(t), on_done, ts,
-                                    prefixo): t
+                    executor.submit(processar_tabela, t, template_path,
+                                    prints_path, output_path, chaves,
+                                    dados_tab.get(t), on_done, ts, prefixo): t
                     for t in tabelas
                 }
                 for f in as_completed(futuros):
-                    pass
+                    if self._cancelado.is_set():
+                        # Cancela tudo que ainda não começou
+                        for ff in futuros:
+                            ff.cancel()
+                        break
+                self._executor_atual = None
 
-            caminho_rel = gerar_relatorio(self._resultados, logs_path)
+            if self._cancelado.is_set():
+                gerar_relatorio(self._resultados, logs_path)
+                ok      = sum(1 for r in self._resultados if r["status"] == "ok")
+                parcial = sum(1 for r in self._resultados if r["status"] == "parcial")
+                erro    = sum(1 for r in self._resultados if r["status"] == "erro")
+                msg_status = (f"Interrompido — OK: {ok} | "
+                              f"Parcial: {parcial} | Erro: {erro}")
+                self._set_status(msg_status, COR_PARCIAL)
+                return
+
+            gerar_relatorio(self._resultados, logs_path)
 
             ok      = sum(1 for r in self._resultados if r["status"] == "ok")
             parcial = sum(1 for r in self._resultados if r["status"] == "parcial")
             erro    = sum(1 for r in self._resultados if r["status"] == "erro")
 
-            self._log(f"\n{'─' * 48}", "info")
-            self._log(f"✅ OK: {ok}   ⚠️  Parcial: {parcial}   ❌ Erro: {erro}", "destaque")
-            self._log(f"📋 Relatório salvo em: {caminho_rel}", "info")
-
             msg_status = f"Concluído — OK: {ok} | Parcial: {parcial} | Erro: {erro}"
-            cor_status = COR_OK if erro == 0 and parcial == 0 else (COR_ERRO if erro > 0 else COR_PARCIAL)
+            cor_status = COR_OK if erro == 0 and parcial == 0 else (
+                COR_ERRO if erro > 0 else COR_PARCIAL)
             self._set_status(msg_status, cor_status)
             self._set_progresso(100)
 
-            # Vai pra aba de resultados automaticamente
-            self.after(800, lambda: self.notebook.select(1))
-
         except Exception as e:
-            self._log(f"❌ Erro fatal: {e}", "erro")
             self._set_status(f"Erro fatal: {e}", COR_ERRO)
 
         finally:
-            self._running = False
-            self.after(0, lambda: self.btn_run.config(
-                state="normal",
-                text="▶  Gerar Documentos",
-                bg=COR_BTN))
+            self.after(0, self._restaurar_botao_run)
+
+    def _parar_execucao(self):
+        """Cancela a execução em andamento — futuros pendentes não serão iniciados."""
+        if not self._running:
+            return
+        self._cancelado.set()
+        self._set_status("Cancelando...", COR_PARCIAL)
+        self.btn_stop.configure_state("disabled")
+        if self._executor_atual is not None:
+            try:
+                self._executor_atual.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                pass
 
 
-# ─────────────────────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────────────────────
+    def _restaurar_botao_run(self):
+        """Reativa o botão principal após uma execução (ou erro)."""
+        self._running = False
+        self.btn_run.configure_state("normal")
+        self.btn_run.set_text("▶  Gerar Documentos")
+        self.btn_stop.configure_state("disabled")
+
 
 if __name__ == "__main__":
     app = App()
