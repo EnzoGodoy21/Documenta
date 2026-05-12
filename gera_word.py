@@ -128,7 +128,10 @@ def descobrir_tabelas(prints_path: str, chaves_img: list) -> list:
     Descobre os nomes de tabelas cruzando os arquivos em prints/
     com as chaves de imagem encontradas no template.
 
-    Convenção: chave_NOMETABELA.png
+    Convenções suportadas:
+      chave_TABELA.png          (único print por chave)
+      chave_1_TABELA.png        (múltiplos prints numerados por chave)
+
     Tabelas são inferidas apenas via [IMG:*] — não via [TXT:*].
     """
     pasta = Path(prints_path)
@@ -144,10 +147,19 @@ def descobrir_tabelas(prints_path: str, chaves_img: list) -> list:
         nome = arquivo.stem
         for chave in chaves_img:
             prefixo = chave + "_"
-            if nome.startswith(prefixo):
-                tabela = nome[len(prefixo):]
-                if tabela:
-                    tabelas.add(tabela)
+            if not nome.startswith(prefixo):
+                continue
+            resto = nome[len(prefixo):]
+            if not resto:
+                continue
+            # Verifica convenção numerada: chave_N_TABELA (N inteiro)
+            partes = resto.split("_", 1)
+            if len(partes) == 2 and partes[0].isdigit():
+                tabela = partes[1]
+            else:
+                tabela = resto
+            if tabela:
+                tabelas.add(tabela)
 
     return sorted(tabelas)
 
@@ -177,12 +189,15 @@ def ler_tabelas_de_arquivo(path: str) -> tuple:
 
     with open(path, encoding="utf-8-sig") as f:
         if ext == ".csv":
-            amostra = f.read(2048)
+            amostra = f.read(4096)
             f.seek(0)
             try:
-                dialeto = _csv.Sniffer().sniff(amostra, delimiters=",;")
+                dialeto = _csv.Sniffer().sniff(amostra, delimiters=",;\t|")
             except _csv.Error:
-                dialeto = _csv.excel
+                # Detecta manualmente pelo delimitador mais frequente
+                dialeto = type("_D", (_csv.excel,), {
+                    "delimiter": ";" if amostra.count(";") >= amostra.count(",") else ","
+                })
             reader = _csv.DictReader(f, dialect=dialeto)
 
             # Normaliza nomes de colunas (strip + uppercase)
@@ -260,7 +275,7 @@ def _builtin_textos(tabela: str, timestamp: datetime = None) -> dict:
 
 
 def processar_tabela(tabela, template_path, prints_path, output_path, chaves,
-                     textos=None, callback=None, timestamp=None):
+                     textos=None, callback=None, timestamp=None, prefixo=""):
     """
     Processa uma tabela: abre o template, faz substituições e salva o .docx.
 
@@ -300,7 +315,9 @@ def processar_tabela(tabela, template_path, prints_path, output_path, chaves,
     try:
         doc = Document(template_path)
 
-        for p in iter_paragrafos(doc):
+        # Converte em lista para que parágrafos inseridos dinamicamente
+        # (múltiplas imagens) não sejam reprocessados no mesmo loop
+        for p in list(iter_paragrafos(doc)):
 
             # ── substituição de texto [TXT:chave] ──────────────
             for chave in chaves.get("txt", []):
@@ -320,10 +337,15 @@ def processar_tabela(tabela, template_path, prints_path, output_path, chaves,
                 if placeholder not in p.text:
                     continue
 
-                caminho = _achar_print(prints_path, chave, tabela)
-                if caminho:
-                    _substituir_imagem_no_paragrafo(p, placeholder, caminho)
+                caminhos = _achar_prints(prints_path, chave, tabela)
+                if caminhos:
+                    # Primeiro print substitui o placeholder
+                    _substituir_imagem_no_paragrafo(p, placeholder, caminhos[0])
                     resultado["prints_ok"].append(chave)
+                    # Prints adicionais inseridos como novos parágrafos após o atual
+                    p_atual = p
+                    for caminho_extra in caminhos[1:]:
+                        p_atual = _inserir_imagem_apos(p_atual, doc, caminho_extra)
                 else:
                     # Mantém o placeholder visível para facilitar identificação
                     resultado["prints_ausentes"].append(chave)
@@ -331,7 +353,8 @@ def processar_tabela(tabela, template_path, prints_path, output_path, chaves,
 
         # Salva o documento
         os.makedirs(output_path, exist_ok=True)
-        caminho_saida = Path(output_path) / f"{tabela}.docx"
+        nome_arquivo = f"{prefixo}{tabela}.docx" if prefixo else f"{tabela}.docx"
+        caminho_saida = Path(output_path) / nome_arquivo
         doc.save(str(caminho_saida))
 
     except Exception as e:
@@ -344,13 +367,62 @@ def processar_tabela(tabela, template_path, prints_path, output_path, chaves,
     return resultado
 
 
-def _achar_print(prints_path, chave, tabela):
-    """Procura o arquivo de print para uma chave+tabela. Retorna o caminho ou None."""
-    for ext in (".png", ".jpg", ".jpeg"):
-        candidato = Path(prints_path) / f"{chave}_{tabela}{ext}"
+def _achar_prints(prints_path, chave, tabela):
+    """
+    Busca arquivos de print para chave+tabela.
+
+    Suporta:
+      chave_TABELA.png                       (único)
+      chave_1_TABELA.png, chave_2_TABELA.png, ...  (múltiplos numerados)
+
+    Retorna lista ordenada de caminhos (vazia se nenhum encontrado).
+    """
+    extensoes = (".png", ".jpg", ".jpeg")
+    pasta = Path(prints_path)
+
+    # Tenta arquivo único
+    for ext in extensoes:
+        candidato = pasta / f"{chave}_{tabela}{ext}"
         if candidato.exists():
-            return str(candidato)
-    return None
+            return [str(candidato)]
+
+    # Tenta numerados: chave_1_TABELA, chave_2_TABELA, ...
+    encontrados = []
+    n = 1
+    while True:
+        achou = False
+        for ext in extensoes:
+            candidato = pasta / f"{chave}_{n}_{tabela}{ext}"
+            if candidato.exists():
+                encontrados.append(str(candidato))
+                achou = True
+                break
+        if not achou:
+            break
+        n += 1
+
+    return encontrados
+
+
+def _inserir_imagem_apos(p_ref, doc, caminho_imagem):
+    """Insere novo parágrafo com imagem centralizada logo após p_ref."""
+    # Cria parágrafo temporário no final e move depois
+    novo_p = doc.add_paragraph()
+
+    pPr = novo_p._p.get_or_add_pPr()
+    ind = OxmlElement("w:ind")
+    ind.set(qn("w:left"), "0")
+    ind.set(qn("w:right"), "0")
+    pPr.append(ind)
+    novo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    run = novo_p.add_run()
+    run.add_picture(caminho_imagem, width=Inches(5.5))
+
+    # Move para logo após p_ref (lxml remove do local original ao re-inserir)
+    p_ref._p.addnext(novo_p._p)
+
+    return novo_p
 
 
 # ─────────────────────────────────────────────────────────────
@@ -522,6 +594,9 @@ def main():
     parser.add_argument("--workers",  type=int, default=4,
                         metavar="N",
                         help="Número de workers paralelos                      (padrão: 4)")
+    parser.add_argument("--prefixo",  default="",
+                        metavar="TEXTO",
+                        help="Prefixo no nome dos arquivos gerados              ex.: DOC_ → DOC_VENDAS.docx")
     args = parser.parse_args()
 
     # Resolve template
@@ -568,8 +643,12 @@ def main():
         tabelas = descobrir_tabelas(args.prints, chaves["img"])
         print(f"📊 Tabelas  : {len(tabelas)} encontrada(s) via prints/")
 
+    prefixo = args.prefixo or ""
+    if prefixo:
+        print(f"🏷️  Prefixo  : {prefixo}")
+
     if not args.force:
-        pendentes  = [t for t in tabelas if not (Path(args.output) / f"{t}.docx").exists()]
+        pendentes  = [t for t in tabelas if not (Path(args.output) / f"{prefixo}{t}.docx").exists()]
         ignoradas  = len(tabelas) - len(pendentes)
         if ignoradas:
             print(f"⏭️  Ignoradas: {ignoradas} já processada(s) (use --force para reprocessar)")
@@ -601,7 +680,8 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futuros = {
             executor.submit(processar_tabela, t, template_path, args.prints,
-                            args.output, chaves, dados_csv.get(t), on_done, ts): t
+                            args.output, chaves, dados_csv.get(t), on_done, ts,
+                            prefixo): t
             for t in tabelas
         }
         for f in as_completed(futuros):

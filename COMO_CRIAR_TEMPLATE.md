@@ -59,13 +59,22 @@ Cada tabela recebe os valores da sua própria linha no CSV.
 
 **Convenção de nome dos prints:**
 ```
-chave_NOMETABELA.png
+chave_NOMETABELA.png            ← único print por chave
+chave_N_NOMETABELA.png          ← múltiplos prints numerados (N começa em 1)
 
-Exemplos:
+Exemplos — único:
   visao_geral_VENDAS.png
   distribuicao_CLIENTES.png
-  linhagem_PEDIDOS.png
+
+Exemplos — múltiplos (N prints para a mesma chave):
+  detalhe_1_VENDAS.png
+  detalhe_2_VENDAS.png
+  detalhe_3_VENDAS.png
 ```
+
+Quando múltiplos prints numerados existem para uma chave, o template precisa
+de apenas **um** `[IMG:detalhe]` — os demais são inseridos automaticamente
+como parágrafos seguintes. Cada tabela pode ter um N diferente.
 
 As tabelas disponíveis são descobertas automaticamente cruzando os arquivos
 em `prints/` com as chaves `[IMG:*]` do template. Nenhuma lista manual é necessária.

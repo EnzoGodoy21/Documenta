@@ -25,6 +25,17 @@ Nenhum arquivo de configuração extra é necessário para execução básica.
 | `[TXT:MES]` | `04` |
 | `[TXT:DIA]` | `04` |
 
+### [IMG:*] — convenções de nome de arquivo
+
+| Padrão | Comportamento |
+|---|---|
+| `chave_TABELA.png` | único print |
+| `chave_1_TABELA.png`, `chave_2_TABELA.png`, ... | múltiplos numerados — um único `[IMG:chave]` no template insere todos em sequência |
+
+Cada tabela pode ter N diferente; o template não precisa mudar.
+
+---
+
 ### [TXT:*] via CSV (colunas extras do arquivo de tabelas)
 
 Qualquer coluna extra no CSV de tabelas vira automaticamente um `[TXT:*]` por tabela.

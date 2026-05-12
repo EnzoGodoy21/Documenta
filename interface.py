@@ -113,24 +113,63 @@ from gera_word import (
 
 
 # ─────────────────────────────────────────────────────────────
-# CORES E ESTILOS
+# PALETA DE CORES E TIPOGRAFIA  (refinada — visual mais moderno)
 # ─────────────────────────────────────────────────────────────
 
-COR_BG        = "#f7f7f8"
-COR_PAINEL    = "#ffffff"
-COR_BORDA     = "#e0e0e0"
-COR_TITULO    = "#1a1a2e"
-COR_SUBTITULO = "#555566"
-COR_OK        = "#16a34a"
-COR_PARCIAL   = "#d97706"
-COR_ERRO      = "#dc2626"
-COR_LOG_BG    = "#1e1e2e"
-COR_LOG_FG    = "#cdd6f4"
-COR_BTN       = "#2563eb"
-COR_BTN_FG    = "#ffffff"
-FONTE_MONO    = ("Courier New", 10)
-FONTE_UI      = ("Segoe UI", 10)
-FONTE_TITULO  = ("Segoe UI", 13, "bold")
+# Superfícies
+COR_BG          = "#f1f5f9"   # fundo geral (slate-100)
+COR_PAINEL      = "#ffffff"   # cards
+COR_PAINEL_ALT  = "#f8fafc"   # variação suave para destacar áreas internas
+COR_BORDA       = "#e2e8f0"   # borda card (slate-200)
+COR_BORDA_FORTE = "#cbd5e1"   # borda em foco / hover
+
+# Texto
+COR_TITULO     = "#0f172a"    # slate-900
+COR_TEXTO      = "#1e293b"    # slate-800
+COR_SUBTITULO  = "#64748b"    # slate-500
+COR_MUTED      = "#94a3b8"    # slate-400
+
+# Estados
+COR_OK         = "#10b981"    # emerald-500
+COR_OK_BG      = "#d1fae5"    # emerald-100
+COR_PARCIAL    = "#f59e0b"    # amber-500
+COR_PARCIAL_BG = "#fef3c7"    # amber-100
+COR_ERRO       = "#ef4444"    # red-500
+COR_ERRO_BG    = "#fee2e2"    # red-100
+COR_INFO       = "#3b82f6"    # blue-500
+COR_INFO_BG    = "#dbeafe"    # blue-100
+
+# Botão primário (CTA)
+COR_BTN        = "#2563eb"    # blue-600
+COR_BTN_HOVER  = "#1d4ed8"    # blue-700
+COR_BTN_FG     = "#ffffff"
+COR_BTN_OFF    = "#94a3b8"    # quando disabled
+
+# Header (sidebar topo)
+COR_HEADER     = "#0f172a"    # slate-900
+COR_HEADER_FG  = "#ffffff"
+COR_HEADER_SUB = "#94a3b8"    # slate-400
+COR_HEADER_BTN = "#1e293b"    # slate-800
+COR_HEADER_BTN_HOVER = "#334155"  # slate-700
+
+# Console (log)
+COR_LOG_BG     = "#0b1020"
+COR_LOG_FG     = "#e2e8f0"
+
+# Fontes
+FONTE_MONO    = ("Cascadia Mono", 10) if sys.platform == "win32" else ("Menlo", 10)
+try:
+    # Cascadia pode não estar instalada — fallback automático tratado pelo tk
+    pass
+except Exception:
+    FONTE_MONO = ("Courier New", 10)
+
+FONTE_UI       = ("Segoe UI", 10)
+FONTE_UI_BOLD  = ("Segoe UI", 10, "bold")
+FONTE_SMALL    = ("Segoe UI", 9)
+FONTE_TITULO   = ("Segoe UI", 16, "bold")
+FONTE_SECAO    = ("Segoe UI", 11, "bold")
+FONTE_BADGE    = ("Segoe UI", 10, "bold")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -200,29 +239,104 @@ def _ler_tabelas_de_arquivo(path: str) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────
-# COMPONENTES
+# COMPONENTES VISUAIS
 # ─────────────────────────────────────────────────────────────
 
-def campo_pasta(parent, label, var, tipo="dir", row=0):
-    """Cria uma linha de campo com label, entry e botão de browse."""
-    ttk.Label(parent, text=label, font=FONTE_UI).grid(
-        row=row, column=0, sticky="w", pady=4, padx=(0, 8))
-    entry = ttk.Entry(parent, textvariable=var, width=52, font=FONTE_UI)
-    entry.grid(row=row, column=1, sticky="ew", pady=4)
+class Card(tk.Frame):
+    """Painel branco com borda sutil — simula 'card' de UI moderna."""
+    def __init__(self, parent, **kw):
+        super().__init__(parent, bg=COR_PAINEL,
+                         highlightbackground=COR_BORDA,
+                         highlightthickness=1, bd=0, **kw)
 
-    def browse():
-        if tipo == "file":
+
+class HoverButton(tk.Button):
+    """Botão tk plano com efeito hover."""
+    def __init__(self, parent, hover_bg=None, hover_fg=None, **kw):
+        super().__init__(parent, **kw)
+        self._bg_default = kw.get("bg", self.cget("bg"))
+        self._fg_default = kw.get("fg", self.cget("fg"))
+        self._hover_bg = hover_bg or self._bg_default
+        self._hover_fg = hover_fg or self._fg_default
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+
+    def _on_enter(self, _):
+        if self["state"] != "disabled":
+            self.config(bg=self._hover_bg, fg=self._hover_fg)
+
+    def _on_leave(self, _):
+        if self["state"] != "disabled":
+            self.config(bg=self._bg_default, fg=self._fg_default)
+
+
+class CampoPasta(tk.Frame):
+    """
+    Linha de configuração de pasta/arquivo:
+      [ícone status] Label
+      [Entry........................] [Procurar]
+    Mostra ✔ verde se o caminho existe, ⚠ amarelo se não existe.
+    """
+
+    def __init__(self, parent, label, var, tipo="dir", placeholder=""):
+        super().__init__(parent, bg=COR_PAINEL)
+        self.var = var
+        self.tipo = tipo
+
+        # Linha superior: ícone + label
+        cabecalho = tk.Frame(self, bg=COR_PAINEL)
+        cabecalho.pack(fill="x")
+
+        self.lbl_status = tk.Label(cabecalho, text="○", font=FONTE_UI_BOLD,
+                                    fg=COR_MUTED, bg=COR_PAINEL, width=2)
+        self.lbl_status.pack(side="left")
+
+        tk.Label(cabecalho, text=label, font=FONTE_UI_BOLD,
+                 fg=COR_TITULO, bg=COR_PAINEL).pack(side="left")
+
+        # Linha inferior: entry + botão
+        linha = tk.Frame(self, bg=COR_PAINEL)
+        linha.pack(fill="x", pady=(4, 0))
+
+        self.entry = tk.Entry(linha, textvariable=var, font=FONTE_UI,
+                              relief="flat", bd=0,
+                              highlightthickness=1,
+                              highlightbackground=COR_BORDA,
+                              highlightcolor=COR_BTN,
+                              bg=COR_PAINEL_ALT, fg=COR_TEXTO)
+        self.entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(20, 6))
+
+        HoverButton(linha, text="Procurar", font=FONTE_UI,
+                    bg=COR_PAINEL_ALT, fg=COR_TITULO,
+                    hover_bg=COR_BORDA, hover_fg=COR_TITULO,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=14, pady=6,
+                    command=self._browse).pack(side="left")
+
+        # Reavaliação do status quando o valor mudar
+        var.trace_add("write", lambda *_: self._atualizar_status())
+        self._atualizar_status()
+
+    def _browse(self):
+        if self.tipo == "file":
             path = filedialog.askopenfilename(
                 title="Selecionar template",
                 filetypes=[("Word Document", "*.docx")])
         else:
-            path = filedialog.askdirectory(title=f"Selecionar pasta — {label}")
+            path = filedialog.askdirectory(title="Selecionar pasta")
         if path:
-            var.set(path)
+            self.var.set(path)
 
-    ttk.Button(parent, text="…", width=3, command=browse).grid(
-        row=row, column=2, padx=(6, 0), pady=4)
-    return entry
+    def _atualizar_status(self):
+        v = self.var.get().strip()
+        if not v:
+            self.lbl_status.config(text="○", fg=COR_MUTED)
+            return
+        existe = Path(v).exists()
+        if existe:
+            self.lbl_status.config(text="✓", fg=COR_OK)
+        else:
+            self.lbl_status.config(text="!", fg=COR_PARCIAL)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -233,17 +347,17 @@ class App(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Gerador de Documentos Word")
-        self.geometry("960x720")
-        self.minsize(800, 600)
+        self.title("Documenta — Gerador de Documentos Word")
+        self.geometry("1040x760")
+        self.minsize(880, 640)
         self.configure(bg=COR_BG)
         self.resizable(True, True)
 
         self._resultados = []
         self._running = False
 
-        self._build_ui()
         self._aplicar_estilo()
+        self._build_ui()
 
     # ── Estilos ttk ──────────────────────────────────────────
 
@@ -251,150 +365,337 @@ class App(tk.Tk):
         style = ttk.Style(self)
         style.theme_use("clam")
 
+        # Bases
+        style.configure(".",            background=COR_BG, foreground=COR_TEXTO,
+                                         font=FONTE_UI)
         style.configure("TFrame",       background=COR_BG)
-        style.configure("Card.TFrame",  background=COR_PAINEL, relief="flat")
-        style.configure("TLabel",       background=COR_BG,    font=FONTE_UI)
+        style.configure("Card.TFrame",  background=COR_PAINEL)
+        style.configure("TLabel",       background=COR_BG, font=FONTE_UI)
         style.configure("Card.TLabel",  background=COR_PAINEL, font=FONTE_UI)
-        style.configure("TEntry",       font=FONTE_UI)
-        style.configure("TCheckbutton", background=COR_PAINEL, font=FONTE_UI)
-        style.configure("TSpinbox",     font=FONTE_UI)
-        style.configure("TLabelframe",  background=COR_PAINEL, font=FONTE_UI)
-        style.configure("TLabelframe.Label", background=COR_PAINEL, font=("Segoe UI", 10, "bold"))
-        style.configure("TNotebook",    background=COR_BG)
-        style.configure("TNotebook.Tab", font=FONTE_UI, padding=[12, 5])
+        style.configure("TCheckbutton", background=COR_PAINEL, font=FONTE_UI,
+                                         foreground=COR_TEXTO,
+                                         focuscolor=COR_PAINEL)
+        style.map("TCheckbutton",
+                  background=[("active", COR_PAINEL)],
+                  foreground=[("disabled", COR_MUTED)])
+
+        # Spinbox e Entry mais limpos
+        style.configure("TSpinbox", font=FONTE_UI, fieldbackground=COR_PAINEL_ALT,
+                                     background=COR_PAINEL_ALT,
+                                     bordercolor=COR_BORDA, relief="flat",
+                                     arrowsize=14)
+        style.configure("TEntry",   font=FONTE_UI, fieldbackground=COR_PAINEL_ALT,
+                                     bordercolor=COR_BORDA, relief="flat")
+
+        # Radiobutton flat
+        style.configure("TRadiobutton", background=COR_BG, font=FONTE_UI,
+                                         foreground=COR_TEXTO)
+        style.map("TRadiobutton",
+                  background=[("active", COR_BG)])
+
+        # Notebook
+        style.configure("TNotebook",      background=COR_BG, borderwidth=0,
+                                           tabmargins=[0, 0, 0, 0])
+        style.configure("TNotebook.Tab",  font=FONTE_UI, padding=[18, 8],
+                                           background=COR_BG,
+                                           foreground=COR_SUBTITULO,
+                                           borderwidth=0)
+        style.map("TNotebook.Tab",
+                  background=[("selected", COR_PAINEL)],
+                  foreground=[("selected", COR_TITULO)],
+                  expand=[("selected", [1, 1, 1, 0])])
 
         # Treeview
         style.configure("Resultados.Treeview",
-                         font=FONTE_UI, rowheight=26,
-                         background=COR_PAINEL, fieldbackground=COR_PAINEL)
+                         font=FONTE_UI, rowheight=30,
+                         background=COR_PAINEL,
+                         fieldbackground=COR_PAINEL,
+                         foreground=COR_TEXTO,
+                         borderwidth=0)
         style.configure("Resultados.Treeview.Heading",
-                         font=("Segoe UI", 10, "bold"))
+                         font=FONTE_UI_BOLD,
+                         background=COR_PAINEL_ALT,
+                         foreground=COR_TITULO,
+                         relief="flat",
+                         padding=[8, 8])
+        style.map("Resultados.Treeview.Heading",
+                  background=[("active", COR_BORDA)])
         style.map("Resultados.Treeview",
-                  background=[("selected", "#dbeafe")])
+                  background=[("selected", COR_INFO_BG)],
+                  foreground=[("selected", COR_TITULO)])
 
-        # Botão principal
-        style.configure("Run.TButton",
-                         background=COR_BTN, foreground=COR_BTN_FG,
-                         font=("Segoe UI", 11, "bold"), padding=[16, 8])
-        style.map("Run.TButton",
-                  background=[("active", "#1d4ed8"), ("disabled", "#94a3b8")])
+        # Progressbar
+        style.configure("Run.Horizontal.TProgressbar",
+                         background=COR_BTN,
+                         troughcolor=COR_BORDA,
+                         borderwidth=0,
+                         thickness=8)
+
+        # Botão padrão (ttk) — apenas para botões secundários
+        style.configure("TButton",
+                         font=FONTE_UI,
+                         padding=[12, 6],
+                         background=COR_PAINEL_ALT,
+                         foreground=COR_TITULO,
+                         borderwidth=0,
+                         focusthickness=0)
+        style.map("TButton",
+                  background=[("active", COR_BORDA),
+                              ("disabled", COR_PAINEL_ALT)],
+                  foreground=[("disabled", COR_MUTED)])
+
+        # LabelFrame — usado apenas em casos específicos
+        style.configure("TLabelframe",  background=COR_PAINEL,
+                                         bordercolor=COR_BORDA,
+                                         borderwidth=1, relief="solid")
+        style.configure("TLabelframe.Label",
+                         background=COR_PAINEL,
+                         foreground=COR_TITULO,
+                         font=FONTE_SECAO)
 
     # ── Layout principal ──────────────────────────────────────
 
     def _build_ui(self):
-        # Cabeçalho
-        header = tk.Frame(self, bg="#1a1a2e", pady=12)
+        # ╭─────────────────────────────────────────────────────╮
+        # │  CABEÇALHO                                          │
+        # ╰─────────────────────────────────────────────────────╯
+        header = tk.Frame(self, bg=COR_HEADER, height=72)
         header.pack(fill="x")
-        tk.Label(header, text="Gerador de Documentos Word",
-                 font=("Segoe UI", 15, "bold"),
-                 bg="#1a1a2e", fg="white").pack(side="left", padx=20)
-        tk.Label(header, text="por tabela a partir de template",
-                 font=("Segoe UI", 10),
-                 bg="#1a1a2e", fg="#8899cc").pack(side="left", padx=4)
+        header.pack_propagate(False)
 
-        tk.Button(header, text="  ?  Ajuda  ", font=("Segoe UI", 10),
-                  bg="#2d3561", fg="white", relief="flat", cursor="hand2",
-                  activebackground="#3d4571", activeforeground="white",
-                  command=self._abrir_ajuda).pack(side="right", padx=16, pady=6)
+        # Lado esquerdo: logo + título
+        bloco_esq = tk.Frame(header, bg=COR_HEADER)
+        bloco_esq.pack(side="left", padx=24, fill="y")
 
-        # Container central
-        body = ttk.Frame(self, padding=12)
-        body.pack(fill="both", expand=True)
+        tk.Label(bloco_esq, text="◆", font=("Segoe UI", 22, "bold"),
+                 bg=COR_HEADER, fg=COR_INFO).pack(side="left", pady=12)
+
+        bloco_titulo = tk.Frame(bloco_esq, bg=COR_HEADER)
+        bloco_titulo.pack(side="left", padx=(10, 0), pady=12)
+
+        tk.Label(bloco_titulo, text="Documenta",
+                 font=FONTE_TITULO,
+                 bg=COR_HEADER, fg=COR_HEADER_FG).pack(anchor="w")
+
+        tk.Label(bloco_titulo,
+                 text="Gerador de Documentos Word por tabela",
+                 font=FONTE_SMALL,
+                 bg=COR_HEADER, fg=COR_HEADER_SUB).pack(anchor="w")
+
+        # Lado direito: ajuda
+        HoverButton(header, text="?  Ajuda",
+                    font=FONTE_UI_BOLD,
+                    bg=COR_HEADER_BTN, fg=COR_HEADER_FG,
+                    hover_bg=COR_HEADER_BTN_HOVER, hover_fg=COR_HEADER_FG,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=16, pady=8,
+                    command=self._abrir_ajuda).pack(side="right", padx=20, pady=18)
+
+        # ╭─────────────────────────────────────────────────────╮
+        # │  CORPO                                              │
+        # ╰─────────────────────────────────────────────────────╯
+        body = tk.Frame(self, bg=COR_BG)
+        body.pack(fill="both", expand=True, padx=20, pady=16)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(2, weight=1)
 
-        # ── Painel de configuração ────────────────────────────
-        config_frame = ttk.LabelFrame(body, text="Configuração", padding=12)
-        config_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        config_frame.columnconfigure(1, weight=1)
+        # ── Card de configuração ──────────────────────────────
+        card_config = Card(body)
+        card_config.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+
+        cabec_cfg = tk.Frame(card_config, bg=COR_PAINEL)
+        cabec_cfg.pack(fill="x", padx=18, pady=(14, 6))
+        tk.Label(cabec_cfg, text="Configuração",
+                 font=FONTE_SECAO, fg=COR_TITULO, bg=COR_PAINEL).pack(side="left")
+        tk.Label(cabec_cfg, text="caminhos do template e das pastas de trabalho",
+                 font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL).pack(side="left", padx=8)
+
+        # Grid 2x2 de campos
+        grid_pastas = tk.Frame(card_config, bg=COR_PAINEL)
+        grid_pastas.pack(fill="x", padx=18, pady=(6, 16))
+        grid_pastas.columnconfigure(0, weight=1, uniform="col")
+        grid_pastas.columnconfigure(1, weight=1, uniform="col")
 
         self.v_template = tk.StringVar(value="template/")
         self.v_prints   = tk.StringVar(value="prints/")
         self.v_output   = tk.StringVar(value="output/")
         self.v_logs     = tk.StringVar(value="logs/")
 
-        campo_pasta(config_frame, "Template (.docx):", self.v_template, tipo="file", row=0)
-        campo_pasta(config_frame, "Pasta de prints:", self.v_prints, row=1)
-        campo_pasta(config_frame, "Pasta de saída:",  self.v_output, row=2)
-        campo_pasta(config_frame, "Pasta de logs:",   self.v_logs,   row=3)
+        CampoPasta(grid_pastas, "Template (.docx)", self.v_template,
+                   tipo="file").grid(row=0, column=0, sticky="ew", padx=(0, 10), pady=6)
+        CampoPasta(grid_pastas, "Pasta de prints", self.v_prints
+                   ).grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=6)
+        CampoPasta(grid_pastas, "Pasta de saída", self.v_output
+                   ).grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=6)
+        CampoPasta(grid_pastas, "Pasta de logs", self.v_logs
+                   ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=6)
 
-        # ── Painel de opções + botão ──────────────────────────
-        opts_row = ttk.Frame(body)
-        opts_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        opts_row.columnconfigure(1, weight=1)
+        # ── Card de opções + Card CTA ─────────────────────────
+        linha_opc = tk.Frame(body, bg=COR_BG)
+        linha_opc.grid(row=1, column=0, sticky="ew", pady=(0, 14))
+        linha_opc.columnconfigure(0, weight=3)
+        linha_opc.columnconfigure(1, weight=1)
 
-        opts_frame = ttk.LabelFrame(opts_row, text="Opções", padding=10)
-        opts_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        # ── Opções ────────────────────────────────────────────
+        card_opc = Card(linha_opc)
+        card_opc.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
 
+        cabec_opc = tk.Frame(card_opc, bg=COR_PAINEL)
+        cabec_opc.pack(fill="x", padx=18, pady=(14, 6))
+        tk.Label(cabec_opc, text="Opções",
+                 font=FONTE_SECAO, fg=COR_TITULO, bg=COR_PAINEL).pack(side="left")
+        tk.Label(cabec_opc, text="controle de execução e filtros",
+                 font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL).pack(side="left", padx=8)
+
+        corpo_opc = tk.Frame(card_opc, bg=COR_PAINEL)
+        corpo_opc.pack(fill="both", expand=True, padx=18, pady=(6, 16))
+
+        # Vars
         self.v_force        = tk.BooleanVar()
         self.v_workers      = tk.IntVar(value=4)
-        self.v_limite       = tk.IntVar(value=0)   # 0 = sem limite
-        self._tabelas_lista = []   # list[str] carregada do arquivo
-        self._tabelas_dados = {}   # dict[str, dict] colunas extras do CSV
+        self.v_limite       = tk.StringVar(value="0")
+        self.v_prefixo      = tk.StringVar(value="")
+        self._tabelas_lista = []
+        self._tabelas_dados = {}
 
-        ttk.Checkbutton(opts_frame, text="Forçar reprocessamento (--force)",
-                        variable=self.v_force).grid(row=0, column=0, columnspan=3, sticky="w")
+        # Linha 1: Workers + Limite + Forçar
+        row1 = tk.Frame(corpo_opc, bg=COR_PAINEL)
+        row1.pack(fill="x")
 
-        ttk.Label(opts_frame, text="Workers:", background=COR_PAINEL).grid(
-            row=1, column=0, sticky="w", pady=(6, 0))
-        ttk.Spinbox(opts_frame, from_=1, to=32, textvariable=self.v_workers,
-                    width=5).grid(row=1, column=1, sticky="w", padx=6, pady=(6, 0))
+        def _label(parent, txt, fg=COR_TEXTO):
+            return tk.Label(parent, text=txt, font=FONTE_UI, fg=fg, bg=COR_PAINEL)
 
-        ttk.Label(opts_frame, text="Limite (prints):", background=COR_PAINEL).grid(
-            row=1, column=2, sticky="w", padx=(16, 0), pady=(6, 0))
-        ttk.Spinbox(opts_frame, from_=0, to=99999, textvariable=self.v_limite,
-                    width=7).grid(row=1, column=3, sticky="w", padx=6, pady=(6, 0))
-        ttk.Label(opts_frame, text="(0 = todas)", background=COR_PAINEL,
-                  foreground=COR_SUBTITULO, font=("Segoe UI", 8)).grid(
-            row=1, column=4, sticky="w", pady=(6, 0))
+        _label(row1, "Workers:").pack(side="left")
+        ttk.Spinbox(row1, from_=1, to=32, textvariable=self.v_workers,
+                    width=5).pack(side="left", padx=(6, 18))
 
-        # ── Seleção de tabelas por arquivo ────────────────────
-        ttk.Label(opts_frame, text="Filtrar tabelas por arquivo (.txt / .csv):",
-                  background=COR_PAINEL).grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 2))
+        _label(row1, "Limite:").pack(side="left")
+        ttk.Spinbox(row1, from_=0, to=99999, textvariable=self.v_limite,
+                    width=8).pack(side="left", padx=(6, 4))
+        _label(row1, "(0 = todas)", fg=COR_MUTED).pack(side="left", padx=(0, 18))
 
-        arquivo_row = ttk.Frame(opts_frame, style="Card.TFrame")
-        arquivo_row.grid(row=3, column=0, columnspan=3, sticky="ew")
+        ttk.Checkbutton(row1, text="Forçar reprocessamento",
+                        variable=self.v_force).pack(side="left")
+
+        # Linha 2: Prefixo
+        row2 = tk.Frame(corpo_opc, bg=COR_PAINEL)
+        row2.pack(fill="x", pady=(12, 0))
+
+        _label(row2, "Prefixo do arquivo:").pack(side="left")
+        tk.Entry(row2, textvariable=self.v_prefixo, font=FONTE_UI, width=22,
+                 relief="flat", bd=0,
+                 highlightthickness=1,
+                 highlightbackground=COR_BORDA,
+                 highlightcolor=COR_BTN,
+                 bg=COR_PAINEL_ALT, fg=COR_TEXTO
+                 ).pack(side="left", padx=(8, 8), ipady=4)
+        _label(row2, "ex.: DOC_ → DOC_VENDAS.docx", fg=COR_MUTED).pack(side="left")
+
+        # Separador visual
+        tk.Frame(corpo_opc, bg=COR_BORDA, height=1).pack(fill="x", pady=(14, 12))
+
+        # Linha 3: Filtro por arquivo (.txt / .csv)
+        row3 = tk.Frame(corpo_opc, bg=COR_PAINEL)
+        row3.pack(fill="x")
+
+        tk.Label(row3, text="Filtrar tabelas por arquivo (opcional)",
+                 font=FONTE_UI_BOLD, fg=COR_TITULO, bg=COR_PAINEL).pack(anchor="w")
+        tk.Label(row3, text=".txt (uma tabela por linha) ou .csv (com colunas extras [TXT:*])",
+                 font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL).pack(anchor="w")
+
+        row4 = tk.Frame(corpo_opc, bg=COR_PAINEL)
+        row4.pack(fill="x", pady=(8, 0))
 
         self.v_arquivo_tabelas = tk.StringVar(value="")
-        self._entry_arquivo = ttk.Entry(arquivo_row, textvariable=self.v_arquivo_tabelas,
-                                        width=38, state="readonly", font=FONTE_UI)
-        self._entry_arquivo.pack(side="left", padx=(0, 6))
+        self._entry_arquivo = tk.Entry(row4, textvariable=self.v_arquivo_tabelas,
+                                        font=FONTE_UI, state="readonly",
+                                        relief="flat", bd=0,
+                                        highlightthickness=1,
+                                        highlightbackground=COR_BORDA,
+                                        readonlybackground=COR_PAINEL_ALT,
+                                        fg=COR_TEXTO)
+        self._entry_arquivo.pack(side="left", fill="x", expand=True, ipady=5)
 
-        ttk.Button(arquivo_row, text="📂 Selecionar", command=self._carregar_arquivo_tabelas).pack(side="left")
-        ttk.Button(arquivo_row, text="✕ Limpar",      command=self._limpar_arquivo_tabelas).pack(side="left", padx=(4, 0))
+        HoverButton(row4, text="Selecionar",
+                    font=FONTE_UI,
+                    bg=COR_PAINEL_ALT, fg=COR_TITULO,
+                    hover_bg=COR_BORDA, hover_fg=COR_TITULO,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=14, pady=5,
+                    command=self._carregar_arquivo_tabelas
+                    ).pack(side="left", padx=(8, 4))
+        HoverButton(row4, text="Limpar",
+                    font=FONTE_UI,
+                    bg=COR_PAINEL_ALT, fg=COR_SUBTITULO,
+                    hover_bg=COR_BORDA, hover_fg=COR_TITULO,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=14, pady=5,
+                    command=self._limpar_arquivo_tabelas).pack(side="left")
 
         self.lbl_tabelas_count = tk.Label(
-            opts_frame, text="(sem filtro — processa todas)",
-            font=("Segoe UI", 9), fg=COR_SUBTITULO, bg=COR_PAINEL)
-        self.lbl_tabelas_count.grid(row=4, column=0, columnspan=3, sticky="w", pady=(2, 0))
+            corpo_opc, text="Sem filtro — processa todas as tabelas encontradas",
+            font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL)
+        self.lbl_tabelas_count.pack(anchor="w", pady=(6, 0))
 
-        # Botão executar
-        btn_frame = ttk.Frame(opts_row)
-        btn_frame.grid(row=0, column=1, sticky="nsew")
-        btn_frame.rowconfigure(0, weight=1)
-        btn_frame.columnconfigure(0, weight=1)
+        # ── CTA — botão principal ─────────────────────────────
+        card_cta = Card(linha_opc)
+        card_cta.grid(row=0, column=1, sticky="nsew")
 
-        self.btn_run = ttk.Button(
-            btn_frame, text="▶  Gerar Documentos",
-            style="Run.TButton", command=self._executar)
-        self.btn_run.grid(row=0, column=0, sticky="nsew", padx=(0, 0))
+        bloco_cta = tk.Frame(card_cta, bg=COR_PAINEL)
+        bloco_cta.pack(expand=True, fill="both", padx=18, pady=18)
 
-        # ── Progresso ─────────────────────────────────────────
-        prog_frame = ttk.Frame(body)
-        prog_frame.grid(row=2, column=0, sticky="ew", pady=(0, 4))
-        prog_frame.columnconfigure(0, weight=1)
+        tk.Label(bloco_cta, text="Pronto para gerar",
+                 font=FONTE_UI_BOLD, fg=COR_TITULO, bg=COR_PAINEL).pack(pady=(8, 4))
+        tk.Label(bloco_cta,
+                 text="Confira as pastas\ne clique abaixo",
+                 font=FONTE_SMALL, fg=COR_SUBTITULO, bg=COR_PAINEL,
+                 justify="center").pack(pady=(0, 12))
+
+        self.btn_run = HoverButton(
+            bloco_cta, text="▶  Gerar Documentos",
+            font=("Segoe UI", 12, "bold"),
+            bg=COR_BTN, fg=COR_BTN_FG,
+            hover_bg=COR_BTN_HOVER, hover_fg=COR_BTN_FG,
+            relief="flat", bd=0, cursor="hand2",
+            padx=20, pady=14,
+            command=self._executar)
+        self.btn_run.pack(fill="x", expand=False)
+
+        # ── Card de Progresso ─────────────────────────────────
+        card_prog = Card(body)
+        card_prog.grid(row=2, column=0, sticky="ew", pady=(0, 14))
+
+        prog_inner = tk.Frame(card_prog, bg=COR_PAINEL)
+        prog_inner.pack(fill="x", padx=18, pady=12)
+
+        topo_prog = tk.Frame(prog_inner, bg=COR_PAINEL)
+        topo_prog.pack(fill="x")
+
+        self.lbl_status = tk.Label(topo_prog, text="Pronto.",
+                                    font=FONTE_UI_BOLD,
+                                    fg=COR_TEXTO, bg=COR_PAINEL)
+        self.lbl_status.pack(side="left")
+
+        self.lbl_pct = tk.Label(topo_prog, text="",
+                                 font=FONTE_SMALL,
+                                 fg=COR_SUBTITULO, bg=COR_PAINEL)
+        self.lbl_pct.pack(side="right")
 
         self.v_prog = tk.DoubleVar()
-        self.progressbar = ttk.Progressbar(prog_frame, variable=self.v_prog, maximum=100)
-        self.progressbar.grid(row=0, column=0, sticky="ew")
+        self.progressbar = ttk.Progressbar(
+            prog_inner, variable=self.v_prog, maximum=100,
+            style="Run.Horizontal.TProgressbar")
+        self.progressbar.pack(fill="x", pady=(8, 0))
 
-        self.lbl_status = ttk.Label(prog_frame, text="Pronto.", foreground=COR_SUBTITULO)
-        self.lbl_status.grid(row=1, column=0, sticky="w", pady=(2, 0))
-
-        # ── Notebook: Log + Resultados ────────────────────────
-        self.notebook = ttk.Notebook(body)
-        self.notebook.grid(row=3, column=0, sticky="nsew", pady=(4, 0))
+        # ╭─────────────────────────────────────────────────────╮
+        # │  NOTEBOOK: Log + Resultados                         │
+        # ╰─────────────────────────────────────────────────────╯
+        notebook_wrap = Card(body)
+        notebook_wrap.grid(row=3, column=0, sticky="nsew")
         body.rowconfigure(3, weight=1)
+
+        self.notebook = ttk.Notebook(notebook_wrap)
+        self.notebook.pack(fill="both", expand=True, padx=2, pady=2)
 
         self._build_aba_log()
         self._build_aba_resultados()
@@ -402,100 +703,146 @@ class App(tk.Tk):
     # ── Aba Log ───────────────────────────────────────────────
 
     def _build_aba_log(self):
-        frame = ttk.Frame(self.notebook)
+        frame = tk.Frame(self.notebook, bg=COR_PAINEL)
         self.notebook.add(frame, text="  Log  ")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 
+        wrapper = tk.Frame(frame, bg=COR_LOG_BG)
+        wrapper.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        wrapper.rowconfigure(0, weight=1)
+        wrapper.columnconfigure(0, weight=1)
+
         self.log_text = tk.Text(
-            frame, state="disabled",
+            wrapper, state="disabled",
             bg=COR_LOG_BG, fg=COR_LOG_FG,
             font=FONTE_MONO, wrap="word",
             insertbackground=COR_LOG_FG,
-            selectbackground="#44475a",
-            relief="flat", padx=10, pady=8)
+            selectbackground="#1e293b",
+            relief="flat", bd=0,
+            padx=14, pady=12)
 
-        scroll_log = ttk.Scrollbar(frame, command=self.log_text.yview)
+        scroll_log = ttk.Scrollbar(wrapper, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scroll_log.set)
         scroll_log.grid(row=0, column=1, sticky="ns")
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
         # Tags de cor no log
-        self.log_text.tag_configure("ok",      foreground=COR_OK)
-        self.log_text.tag_configure("parcial",  foreground=COR_PARCIAL)
-        self.log_text.tag_configure("erro",     foreground=COR_ERRO)
-        self.log_text.tag_configure("info",     foreground="#89b4fa")
-        self.log_text.tag_configure("destaque", foreground="#f5c2e7")
+        self.log_text.tag_configure("ok",      foreground="#86efac")
+        self.log_text.tag_configure("parcial", foreground="#fcd34d")
+        self.log_text.tag_configure("erro",    foreground="#fca5a5")
+        self.log_text.tag_configure("info",    foreground="#93c5fd")
+        self.log_text.tag_configure("destaque", foreground="#f0abfc",
+                                     font=(FONTE_MONO[0], FONTE_MONO[1], "bold"))
+
+        # Mensagem inicial
+        self._log("Pronto para iniciar. Configure as pastas acima e clique em \"Gerar Documentos\".", "info")
 
     # ── Aba Resultados ────────────────────────────────────────
 
     def _build_aba_resultados(self):
-        frame = ttk.Frame(self.notebook)
+        frame = tk.Frame(self.notebook, bg=COR_PAINEL)
         self.notebook.add(frame, text="  Resultados  ")
         frame.rowconfigure(1, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        # Barra de resumo
-        self.frame_resumo = tk.Frame(frame, bg=COR_PAINEL, pady=8, padx=12)
-        self.frame_resumo.grid(row=0, column=0, columnspan=2, sticky="ew")
+        # Barra superior: badges + abrir output
+        topo = tk.Frame(frame, bg=COR_PAINEL_ALT, height=56)
+        topo.grid(row=0, column=0, columnspan=2, sticky="ew")
+        topo.pack_propagate(False)
 
-        self.lbl_resumo_ok      = self._lbl_badge(self.frame_resumo, "OK: —",      COR_OK)
-        self.lbl_resumo_parcial = self._lbl_badge(self.frame_resumo, "Parcial: —", COR_PARCIAL)
-        self.lbl_resumo_erro    = self._lbl_badge(self.frame_resumo, "Erro: —",    COR_ERRO)
+        bloco_badges = tk.Frame(topo, bg=COR_PAINEL_ALT)
+        bloco_badges.pack(side="left", padx=14, pady=10)
 
-        self.lbl_resumo_ok.pack(side="left", padx=(0, 12))
-        self.lbl_resumo_parcial.pack(side="left", padx=(0, 12))
+        self.lbl_resumo_ok      = self._badge(bloco_badges, "OK",      "—", COR_OK,      COR_OK_BG)
+        self.lbl_resumo_parcial = self._badge(bloco_badges, "Parcial", "—", COR_PARCIAL, COR_PARCIAL_BG)
+        self.lbl_resumo_erro    = self._badge(bloco_badges, "Erro",    "—", COR_ERRO,    COR_ERRO_BG)
+
+        self.lbl_resumo_ok.pack(side="left", padx=(0, 8))
+        self.lbl_resumo_parcial.pack(side="left", padx=(0, 8))
         self.lbl_resumo_erro.pack(side="left")
 
         # Botão abrir output
-        self.btn_abrir = ttk.Button(
-            self.frame_resumo, text="📂 Abrir pasta output",
-            command=self._abrir_output)
-        self.btn_abrir.pack(side="right")
+        HoverButton(topo, text="📂 Abrir pasta output",
+                    font=FONTE_UI,
+                    bg=COR_PAINEL, fg=COR_TITULO,
+                    hover_bg=COR_BORDA, hover_fg=COR_TITULO,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=14, pady=6,
+                    command=self._abrir_output).pack(side="right", padx=14, pady=12)
 
-        # Treeview
+        # Treeview de resultados
         colunas = ("tabela", "status", "imgs_ok", "ausentes", "erro")
+        tree_wrap = tk.Frame(frame, bg=COR_PAINEL)
+        tree_wrap.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=10, pady=(8, 0))
+        tree_wrap.rowconfigure(0, weight=1)
+        tree_wrap.columnconfigure(0, weight=1)
+
         self.tree = ttk.Treeview(
-            frame, columns=colunas, show="headings",
+            tree_wrap, columns=colunas, show="headings",
             style="Resultados.Treeview", selectmode="browse")
 
         self.tree.heading("tabela",   text="Tabela")
         self.tree.heading("status",   text="Status")
-        self.tree.heading("imgs_ok",  text="[IMG] inseridos")
+        self.tree.heading("imgs_ok",  text="Imagens inseridas")
         self.tree.heading("ausentes", text="Ausentes (IMG / TXT)")
         self.tree.heading("erro",     text="Erro")
 
-        self.tree.column("tabela",   width=180, minwidth=100)
-        self.tree.column("status",   width=80,  minwidth=70, anchor="center")
-        self.tree.column("imgs_ok",  width=180, minwidth=80)
-        self.tree.column("ausentes", width=220, minwidth=80)
-        self.tree.column("erro",     width=260, minwidth=80)
+        self.tree.column("tabela",   width=200, minwidth=120)
+        self.tree.column("status",   width=90,  minwidth=80, anchor="center")
+        self.tree.column("imgs_ok",  width=200, minwidth=120)
+        self.tree.column("ausentes", width=260, minwidth=120)
+        self.tree.column("erro",     width=280, minwidth=120)
 
         self.tree.tag_configure("ok",      foreground=COR_OK)
         self.tree.tag_configure("parcial", foreground=COR_PARCIAL)
         self.tree.tag_configure("erro",    foreground=COR_ERRO)
 
-        scroll_tree = ttk.Scrollbar(frame, command=self.tree.yview)
+        scroll_tree = ttk.Scrollbar(tree_wrap, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll_tree.set)
-        scroll_tree.grid(row=1, column=1, sticky="ns")
-        self.tree.grid(row=1, column=0, sticky="nsew")
+        scroll_tree.grid(row=0, column=1, sticky="ns")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+
+        # Empty state
+        self.lbl_empty = tk.Label(tree_wrap,
+                                   text="Os resultados aparecerão aqui após a execução.",
+                                   font=FONTE_UI, fg=COR_MUTED, bg=COR_PAINEL)
+        self.lbl_empty.place(relx=0.5, rely=0.5, anchor="center")
 
         # Filtro de status
-        filtro_frame = ttk.Frame(frame, padding=(8, 4))
-        filtro_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
+        filtro_frame = tk.Frame(frame, bg=COR_PAINEL)
+        filtro_frame.grid(row=2, column=0, columnspan=2, sticky="ew",
+                          padx=14, pady=(6, 10))
 
-        ttk.Label(filtro_frame, text="Filtrar:").pack(side="left", padx=(0, 6))
+        tk.Label(filtro_frame, text="Filtrar:",
+                 font=FONTE_UI, fg=COR_SUBTITULO, bg=COR_PAINEL
+                 ).pack(side="left", padx=(0, 8))
         self.v_filtro = tk.StringVar(value="todos")
-        for valor, txt in [("todos", "Todos"), ("ok", "OK"), ("parcial", "Parcial"), ("erro", "Erro")]:
+        for valor, txt in [("todos", "Todos"),
+                            ("ok", "OK"),
+                            ("parcial", "Parcial"),
+                            ("erro", "Erro")]:
             ttk.Radiobutton(
                 filtro_frame, text=txt,
                 variable=self.v_filtro, value=valor,
                 command=self._aplicar_filtro).pack(side="left", padx=4)
 
-    def _lbl_badge(self, parent, texto, cor):
-        return tk.Label(parent, text=texto,
-                        font=("Segoe UI", 11, "bold"),
-                        fg=cor, bg=COR_PAINEL)
+    def _badge(self, parent, label, valor, cor_fg, cor_bg):
+        """Pill-style badge: 'OK · 12'."""
+        fr = tk.Frame(parent, bg=cor_bg, padx=10, pady=4,
+                       highlightbackground=cor_fg, highlightthickness=0)
+        tk.Label(fr, text=label, font=FONTE_BADGE,
+                 fg=cor_fg, bg=cor_bg).pack(side="left")
+        tk.Label(fr, text=" · ", font=FONTE_BADGE,
+                 fg=cor_fg, bg=cor_bg).pack(side="left")
+        val_lbl = tk.Label(fr, text=valor, font=FONTE_BADGE,
+                            fg=cor_fg, bg=cor_bg)
+        val_lbl.pack(side="left")
+        fr._valor_lbl = val_lbl  # referência para atualização
+        return fr
+
+    def _badge_set(self, badge, valor):
+        badge._valor_lbl.config(text=str(valor))
 
     # ── Carregar arquivo de tabelas ───────────────────────────
 
@@ -510,13 +857,21 @@ class App(tk.Tk):
         if not path:
             return
 
-        tabelas, dados = _ler_tabelas_de_arquivo(path)
+        try:
+            tabelas, dados = _ler_tabelas_de_arquivo(path)
+        except Exception as e:
+            messagebox.showerror(
+                "Erro ao ler arquivo",
+                f"Não foi possível ler o arquivo selecionado:\n\n{e}"
+            )
+            return
 
         if not tabelas:
             messagebox.showwarning(
                 "Arquivo vazio",
                 "Nenhum nome de tabela encontrado no arquivo.\n\n"
-                "Verifique se o arquivo tem um nome por linha (ou coluna 'nome_tabela' no CSV)."
+                "Verifique se o arquivo tem um nome por linha "
+                "(ou coluna 'nome_tabela' no CSV)."
             )
             return
 
@@ -525,9 +880,9 @@ class App(tk.Tk):
         self.v_arquivo_tabelas.set(path)
 
         extras = len(dados.get(tabelas[0], {})) if dados else 0
-        info = f"✔ {len(tabelas)} tabela(s)"
+        info = f"✓  {len(tabelas)} tabela(s) carregada(s)"
         if extras:
-            info += f" · {extras} coluna(s) extra(s) como [TXT:*]"
+            info += f"  ·  {extras} coluna(s) extra(s) como [TXT:*]"
         self.lbl_tabelas_count.config(text=info, fg=COR_OK)
 
     def _limpar_arquivo_tabelas(self):
@@ -535,7 +890,7 @@ class App(tk.Tk):
         self._tabelas_dados = {}
         self.v_arquivo_tabelas.set("")
         self.lbl_tabelas_count.config(
-            text="(sem filtro — processa todas)",
+            text="Sem filtro — processa todas as tabelas encontradas",
             fg=COR_SUBTITULO)
 
     # ── Helpers de UI ─────────────────────────────────────────
@@ -552,14 +907,21 @@ class App(tk.Tk):
             self.log_text.config(state="disabled")
         self.after(0, _do)
 
-    def _set_status(self, msg, cor=COR_SUBTITULO):
-        self.after(0, lambda: self.lbl_status.config(text=msg, foreground=cor))
+    def _set_status(self, msg, cor=COR_TEXTO):
+        self.after(0, lambda: self.lbl_status.config(text=msg, fg=cor))
 
     def _set_progresso(self, pct):
-        self.after(0, lambda: self.v_prog.set(pct))
+        def _do():
+            self.v_prog.set(pct)
+            self.lbl_pct.config(text=f"{int(pct)}%")
+        self.after(0, _do)
 
     def _adicionar_resultado(self, r):
         def _do():
+            # Esconde o empty state
+            if self.lbl_empty.winfo_ismapped():
+                self.lbl_empty.place_forget()
+
             partes_ausentes = []
             if r["prints_ausentes"]:
                 partes_ausentes.append(f"IMG: {', '.join(r['prints_ausentes'])}")
@@ -582,90 +944,93 @@ class App(tk.Tk):
         ok      = sum(1 for r in self._resultados if r["status"] == "ok")
         parcial = sum(1 for r in self._resultados if r["status"] == "parcial")
         erro    = sum(1 for r in self._resultados if r["status"] == "erro")
-        self.lbl_resumo_ok.config(text=f"OK: {ok}")
-        self.lbl_resumo_parcial.config(text=f"Parcial: {parcial}")
-        self.lbl_resumo_erro.config(text=f"Erro: {erro}")
+        self._badge_set(self.lbl_resumo_ok, ok)
+        self._badge_set(self.lbl_resumo_parcial, parcial)
+        self._badge_set(self.lbl_resumo_erro, erro)
 
     def _aplicar_filtro(self):
-        filtro = self.v_filtro.get()
-        for item in self.tree.get_children():
-            tags = self.tree.item(item, "tags")
-            if filtro == "todos" or filtro in tags:
-                # Re-inserir na posição certa (tkinter não tem "show/hide")
-                pass
-        # Simples: limpar e re-inserir só os que batem
+        """Re-popula a Treeview de acordo com o filtro selecionado."""
+        # Limpa
         for item in self.tree.get_children():
             self.tree.delete(item)
+
         filtro_atual = self.v_filtro.get()
         for r in self._resultados:
-            if filtro_atual == "todos" or r["status"] == filtro_atual:
-                partes_ausentes = []
-                if r["prints_ausentes"]:
-                    partes_ausentes.append(f"IMG: {', '.join(r['prints_ausentes'])}")
-                if r["textos_ausentes"]:
-                    partes_ausentes.append(f"TXT: {', '.join(r['textos_ausentes'])}")
-                self.tree.insert("", "end",
-                    values=(
-                        r["tabela"],
-                        r["status"].upper(),
-                        ", ".join(r["prints_ok"]) or "—",
-                        " | ".join(partes_ausentes) or "—",
-                        r["erro"] or "—",
-                    ),
-                    tags=(r["status"],))
+            if filtro_atual != "todos" and r["status"] != filtro_atual:
+                continue
+            partes_ausentes = []
+            if r["prints_ausentes"]:
+                partes_ausentes.append(f"IMG: {', '.join(r['prints_ausentes'])}")
+            if r["textos_ausentes"]:
+                partes_ausentes.append(f"TXT: {', '.join(r['textos_ausentes'])}")
+            self.tree.insert("", "end",
+                values=(
+                    r["tabela"],
+                    r["status"].upper(),
+                    ", ".join(r["prints_ok"]) or "—",
+                    " | ".join(partes_ausentes) or "—",
+                    r["erro"] or "—",
+                ),
+                tags=(r["status"],))
 
     def _abrir_ajuda(self):
         """Abre janela de ajuda com duas abas: Como usar e Como criar o template."""
         win = tk.Toplevel(self)
-        win.title("Ajuda — Gerador de Documentos Word")
-        win.geometry("720x560")
+        win.title("Ajuda — Documenta")
+        win.geometry("780x600")
         win.resizable(True, True)
         win.configure(bg=COR_BG)
-        win.grab_set()  # modal
+        win.transient(self)
+        win.grab_set()
+
+        # Header da janela de ajuda
+        h = tk.Frame(win, bg=COR_HEADER, height=56)
+        h.pack(fill="x")
+        h.pack_propagate(False)
+        tk.Label(h, text="Central de Ajuda",
+                 font=("Segoe UI", 14, "bold"),
+                 bg=COR_HEADER, fg=COR_HEADER_FG).pack(side="left", padx=20, pady=14)
 
         nb = ttk.Notebook(win)
-        nb.pack(fill="both", expand=True, padx=12, pady=12)
+        nb.pack(fill="both", expand=True, padx=14, pady=14)
 
         def aba_texto(titulo, conteudo):
-            frame = ttk.Frame(nb)
+            frame = tk.Frame(nb, bg=COR_PAINEL)
             nb.add(frame, text=f"  {titulo}  ")
             frame.rowconfigure(0, weight=1)
             frame.columnconfigure(0, weight=1)
             txt = tk.Text(frame, wrap="word", font=("Segoe UI", 10),
-                          bg=COR_PAINEL, fg=COR_TITULO, relief="flat",
-                          padx=16, pady=12, state="normal",
-                          selectbackground="#dbeafe", cursor="arrow")
+                          bg=COR_PAINEL, fg=COR_TEXTO, relief="flat",
+                          padx=20, pady=16, state="normal",
+                          selectbackground=COR_INFO_BG, cursor="arrow")
             scroll = ttk.Scrollbar(frame, command=txt.yview)
             txt.configure(yscrollcommand=scroll.set)
             scroll.grid(row=0, column=1, sticky="ns")
             txt.grid(row=0, column=0, sticky="nsew")
 
-            # Tags de estilo
-            txt.tag_configure("h1",    font=("Segoe UI", 12, "bold"), foreground=COR_TITULO,
-                               spacing1=10, spacing3=4)
-            txt.tag_configure("h2",    font=("Segoe UI", 10, "bold"), foreground="#2563eb",
-                               spacing1=8, spacing3=2)
-            txt.tag_configure("code",  font=("Courier New", 10), foreground="#7c3aed",
-                               background="#f3f0ff")
-            txt.tag_configure("ok",    foreground=COR_OK,      font=("Segoe UI", 10, "bold"))
-            txt.tag_configure("warn",  foreground=COR_PARCIAL, font=("Segoe UI", 10, "bold"))
-            txt.tag_configure("err",   foreground=COR_ERRO,    font=("Segoe UI", 10, "bold"))
+            txt.tag_configure("h1",    font=("Segoe UI", 14, "bold"),
+                               foreground=COR_TITULO, spacing1=10, spacing3=8)
+            txt.tag_configure("h2",    font=("Segoe UI", 11, "bold"),
+                               foreground=COR_INFO, spacing1=12, spacing3=4)
+            txt.tag_configure("code",  font=("Cascadia Mono", 10) if sys.platform == "win32" else ("Menlo", 10),
+                               foreground="#7c3aed", background="#f3f0ff")
+            txt.tag_configure("ok",    foreground=COR_OK,      font=FONTE_UI_BOLD)
+            txt.tag_configure("warn",  foreground=COR_PARCIAL, font=FONTE_UI_BOLD)
+            txt.tag_configure("err",   foreground=COR_ERRO,    font=FONTE_UI_BOLD)
             txt.tag_configure("muted", foreground=COR_SUBTITULO)
             txt.tag_configure("standby", foreground="#92400e", background="#fef3c7",
-                               font=("Segoe UI", 9))
+                               font=FONTE_SMALL)
 
             for bloco in conteudo:
                 tag, texto = bloco
                 txt.insert("end", texto, tag)
 
-            # Somente leitura mas selecionável — bloqueia edição, permite Ctrl+C / Ctrl+A
             def _bloquear_edicao(e):
                 if e.state & 0x4 and e.keysym.lower() in ("c", "a"):
-                    return  # permite Ctrl+C e Ctrl+A
+                    return
                 return "break"
             txt.bind("<Key>", _bloquear_edicao)
-            txt.bind("<Button-2>", lambda e: "break")  # bloqueia colar com botão do meio
-
+            txt.bind("<Button-2>", lambda e: "break")
             return frame
 
         # ── Aba 1: Como usar ──────────────────────────────────
@@ -676,6 +1041,7 @@ class App(tk.Tk):
             ("",     "  Pasta de prints    Onde ficam as imagens geradas\n"),
             ("",     "  Pasta de saída     Onde os .docx serão salvos\n"),
             ("",     "  Pasta de logs      Onde ficam os relatórios de execução\n\n"),
+            ("muted","  Dica: o ícone verde ✓ indica que o caminho existe.\n\n"),
             ("h2",   "2. Arquivo de tabelas (opcional)\n"),
             ("",     "  Deixe em branco para processar todas as tabelas encontradas.\n"),
             ("",     "  Carregue um .txt ou .csv para filtrar e/ou passar dados [TXT:*].\n\n"),
@@ -683,7 +1049,9 @@ class App(tk.Tk):
             ("code", "  Forçar reprocessamento"),
             ("",     "  reprocessa mesmo que o .docx já exista em output/\n"),
             ("code", "  Workers"),
-            ("",     "             número de documentos gerados em paralelo\n\n"),
+            ("",     "                 número de documentos gerados em paralelo\n"),
+            ("code", "  Limite"),
+            ("",     "                  processa apenas as N primeiras tabelas (0 = todas)\n\n"),
             ("h2",   "4. Clique em ▶ Gerar Documentos\n"),
             ("",     "  Acompanhe o progresso na aba "),
             ("code", "Log"),
@@ -757,7 +1125,16 @@ class App(tk.Tk):
             ("",     "  • Tabelas são descobertas automaticamente pelos prints — sem lista manual\n"),
         ])
 
-        ttk.Button(win, text="Fechar", command=win.destroy).pack(pady=(0, 12))
+        # Botão fechar
+        rodape = tk.Frame(win, bg=COR_BG)
+        rodape.pack(fill="x", pady=(0, 12), padx=14)
+        HoverButton(rodape, text="Fechar",
+                    font=FONTE_UI_BOLD,
+                    bg=COR_BTN, fg=COR_BTN_FG,
+                    hover_bg=COR_BTN_HOVER, hover_fg=COR_BTN_FG,
+                    relief="flat", bd=0, cursor="hand2",
+                    padx=20, pady=8,
+                    command=win.destroy).pack(side="right")
 
     def _abrir_output(self):
         pasta = self.v_output.get()
@@ -784,22 +1161,31 @@ class App(tk.Tk):
         logs_path    = self.v_logs.get().strip()
         force        = self.v_force.get()
         workers      = self.v_workers.get()
-        filtro_tab   = list(self._tabelas_lista) if self._tabelas_lista else None
-        dados_tab    = dict(self._tabelas_dados)
-        limite_prints = self.v_limite.get()
+        filtro_tab    = list(self._tabelas_lista) if self._tabelas_lista else None
+        dados_tab     = dict(self._tabelas_dados)
+        try:
+            limite_prints = int(self.v_limite.get())
+        except (ValueError, TypeError):
+            limite_prints = 0
+        prefixo = self.v_prefixo.get().strip()
 
         # Reset UI
         self._resultados = []
         for item in self.tree.get_children():
             self.tree.delete(item)
+        # Mostra empty state se a aba existir
+        if not self.lbl_empty.winfo_ismapped():
+            self.lbl_empty.place(relx=0.5, rely=0.5, anchor="center")
         self.log_text.config(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.config(state="disabled")
         self._atualizar_resumo()
         self.v_prog.set(0)
+        self.lbl_pct.config(text="0%")
 
         self._running = True
-        self.btn_run.config(state="disabled")
+        self.btn_run.config(state="disabled", text="Processando...",
+                             bg=COR_BTN_OFF)
         self.notebook.select(0)  # vai pro log
 
         threading.Thread(target=self._thread_execucao, daemon=True, kwargs=dict(
@@ -812,11 +1198,12 @@ class App(tk.Tk):
             filtro_tab=filtro_tab,
             dados_tab=dados_tab,
             limite_prints=limite_prints,
+            prefixo=prefixo,
         )).start()
 
     def _thread_execucao(self, template_arg, prints_path, output_path,
                          logs_path, force, workers, filtro_tab, dados_tab,
-                         limite_prints=0):
+                         limite_prints=0, prefixo=""):
         try:
             # Resolver template
             try:
@@ -842,13 +1229,16 @@ class App(tk.Tk):
                 # Sem lista explícita — descobre via prints/
                 tabelas = descobrir_tabelas(prints_path, chaves["img"])
                 self._log(f"📊 Tabelas  : {len(tabelas)} encontrada(s) via prints/", "info")
-                if limite_prints and limite_prints > 0:
+                if limite_prints > 0:
                     tabelas = tabelas[:limite_prints]
                     self._log(f"🔢 Limite   : {len(tabelas)} tabela(s) (limite aplicado)", "info")
 
+            if prefixo:
+                self._log(f"🏷️  Prefixo  : {prefixo}", "info")
+
             if not force:
                 pendentes = [t for t in tabelas
-                             if not (Path(output_path) / f"{t}.docx").exists()]
+                             if not (Path(output_path) / f"{prefixo}{t}.docx").exists()]
                 ignoradas = len(tabelas) - len(pendentes)
                 if ignoradas:
                     self._log(f"⏭️  {ignoradas} já processada(s) — use 'Forçar' para reprocessar", "info")
@@ -866,7 +1256,7 @@ class App(tk.Tk):
             ts = _dt.now()
             self._log(f"\n🚀 Iniciando {len(tabelas)} tabela(s) com {workers} worker(s)...", "destaque")
             self._log(f"📅 Timestamp : {ts.strftime('%d/%m/%Y %H:%M:%S')}\n", "info")
-            self._set_status(f"Processando 0 / {len(tabelas)}...")
+            self._set_status(f"Processando 0 / {len(tabelas)}...", COR_INFO)
 
             total = len(tabelas)
             concluidos = [0]
@@ -890,12 +1280,13 @@ class App(tk.Tk):
 
                 pct = concluidos[0] / total * 100
                 self._set_progresso(pct)
-                self._set_status(f"Processando {concluidos[0]} / {total}...")
+                self._set_status(f"Processando {concluidos[0]} / {total}...", COR_INFO)
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futuros = {
                     executor.submit(processar_tabela, t, template_path, prints_path,
-                                    output_path, chaves, dados_tab.get(t), on_done, ts): t
+                                    output_path, chaves, dados_tab.get(t), on_done, ts,
+                                    prefixo): t
                     for t in tabelas
                 }
                 for f in as_completed(futuros):
@@ -925,7 +1316,10 @@ class App(tk.Tk):
 
         finally:
             self._running = False
-            self.after(0, lambda: self.btn_run.config(state="normal"))
+            self.after(0, lambda: self.btn_run.config(
+                state="normal",
+                text="▶  Gerar Documentos",
+                bg=COR_BTN))
 
 
 # ─────────────────────────────────────────────────────────────
